@@ -8,15 +8,32 @@ st.title("📊 Meesho Seller Dashboard")
 
 
 # =====================================================
-# SKU NORMALIZER (IMPORTANT)
+# HELPERS
 # =====================================================
 
 def clean_sku(x):
+    """Normalize SKU to avoid mismatch issues"""
     return str(x).strip().lower()
 
 
+def read_orders_file(file):
+    """Safely read CSV or Excel"""
+    name = file.name.lower()
+
+    if name.endswith(".csv"):
+        return pd.read_csv(file)
+
+    return pd.read_excel(file, header=1, engine="openpyxl")
+
+
+def extract_amount(text):
+    """Extract Rs / Rs. amounts from claims text"""
+    nums = re.findall(r'Rs\.?\s*(\d+(?:\.\d+)?)', str(text))
+    return sum(float(x) for x in nums)
+
+
 # =====================================================
-# PURCHASE COST MAP (SAFE)
+# PURCHASE COST MAP
 # =====================================================
 
 PURCHASE_COST_MAP = {
@@ -39,27 +56,19 @@ PURCHASE_COST_MAP = {
 # FILE UPLOADS
 # =====================================================
 
-orders_file = st.file_uploader("Upload Order Payments Excel", type=["xlsx"])
-claims_file = st.file_uploader("Upload Claims CSV", type=["csv"])
+orders_file = st.file_uploader("Upload Orders File (.xlsx or .csv)")
+claims_file = st.file_uploader("Upload Claims File (.csv)")
 
 
 # =====================================================
 # ================= STAGE 1 — SALES ===================
 # =====================================================
 
-    # =====================================
-# SAFE FILE READER (Excel + CSV)
-# =====================================
+summary = None
 
-if orders_file.name.lower().endswith(".csv"):
-    df = pd.read_csv(orders_file)
+if orders_file:
 
-else:
-    df = pd.read_excel(
-        orders_file,
-        header=1,
-        engine="openpyxl"
-    )
+    df = read_orders_file(orders_file)
 
     sku_col = "Supplier SKU"
     status_col = "Live Order Status"
@@ -71,7 +80,7 @@ else:
     df["clean_sku"] = df[sku_col].apply(clean_sku)
     df["Purchase Cost"] = df["clean_sku"].map(PURCHASE_COST_MAP).fillna(0)
 
-    # Profit logic
+    # Profit
     df["Profit"] = df.apply(
         lambda r: r[settlement_col] - r["Purchase Cost"]
         if r[status_col] == "Delivered"
@@ -79,7 +88,7 @@ else:
         axis=1
     )
 
-    # Counts
+    # counts
     counts = (
         df.pivot_table(index=sku_col,
                        columns=status_col,
@@ -114,7 +123,8 @@ else:
     summary["Total Purchase"] = summary["Delivered"] * summary["Purchase Cost"]
     summary = summary.fillna(0)
 
-    # KPI
+    # ================= KPIs =================
+
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Delivered", int(summary["Delivered"].sum()))
     c2.metric("Revenue ₹", round(summary["Revenue"].sum(), 2))
@@ -122,26 +132,31 @@ else:
     c4.metric("Profit ₹", round(summary["Net Profit"].sum(), 2))
 
 
-    # Charts
-    colA, colB = st.columns(2)
+    # ================= Charts =================
 
-    with colA:
+    col1, col2 = st.columns(2)
+
+    with col1:
         fig, ax = plt.subplots(figsize=(3, 3))
         ax.pie(
-            [summary["Delivered"].sum(),
-             summary.get("Return", 0).sum(),
-             summary.get("RTO", 0).sum()],
+            [
+                summary["Delivered"].sum(),
+                summary.get("Return", 0).sum(),
+                summary.get("RTO", 0).sum()
+            ],
             labels=["Delivered", "Return", "RTO"],
             autopct="%1.0f%%"
         )
         st.pyplot(fig)
 
-    with colB:
+    with col2:
         fig, ax = plt.subplots(figsize=(5, 3))
         colors = ["green" if x > 0 else "red" for x in summary["Net Profit"]]
         ax.barh(summary[sku_col], summary["Net Profit"], color=colors)
         st.pyplot(fig)
 
+
+    st.subheader("📋 Sales Table")
     st.dataframe(
         summary[[sku_col, "Delivered", "Purchase Cost",
                  "Total Purchase", "Revenue", "Net Profit"]],
@@ -156,13 +171,9 @@ else:
 if claims_file:
 
     st.divider()
-    st.header("Claims Analysis")
+    st.header("🧾 Claims Analysis")
 
     claims = pd.read_csv(claims_file)
-
-    def extract_amount(text):
-        nums = re.findall(r'Rs\.?\s*(\d+(?:\.\d+)?)', str(text))
-        return sum(float(x) for x in nums)
 
     claims["Claim Amount"] = claims["Last Update"].apply(extract_amount)
     claims["clean_sku"] = claims["SKU"].apply(clean_sku)
@@ -191,25 +202,26 @@ if claims_file:
 
     sku_claims["Approved Profit"] = (
         sku_claims["Claim_Received"]
-        - (sku_claims["Approved_Qty"] * sku_claims["Purchase Cost"])
+        - sku_claims["Approved_Qty"] * sku_claims["Purchase Cost"]
     )
 
     sku_claims["Rejected Loss"] = (
         sku_claims["Rejected_Qty"] * sku_claims["Purchase Cost"]
     )
 
-    sku_claims["Net Claim"] = sku_claims["Approved Profit"] - sku_claims["Rejected Loss"]
+    sku_claims["Net Claim"] = (
+        sku_claims["Approved Profit"] - sku_claims["Rejected Loss"]
+    )
 
+    # KPIs
     c1, c2, c3 = st.columns(3)
     c1.metric("Claim ₹", round(sku_claims["Claim_Received"].sum(), 2))
     c2.metric("Loss ₹", round(sku_claims["Rejected Loss"].sum(), 2))
     c3.metric("Net ₹", round(sku_claims["Net Claim"].sum(), 2))
 
+    st.subheader("📋 Claims Table")
     st.dataframe(
         sku_claims[["SKU", "Approved_Qty", "Rejected_Qty",
                     "Purchase Cost", "Claim_Received", "Net Claim"]],
         use_container_width=True
     )
-
-
-
