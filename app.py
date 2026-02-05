@@ -150,11 +150,20 @@ if claims_file:
     sku_col = "SKU"
 
     PURCHASE_COST_MAP = {
-        "HB-103 YELLOW": 550,
-        "PS124 Pink": 550,
-        "HB-103 INDIGO": 550,
-        "HB-103 RAMA": 550,
-        "MirrorBlue1": 850
+        "HB-221 Purple": 850,
+        "MIRROR YELLOW": 850,
+        "mirror - blue": 850,
+        "HB-221 Red": 850,
+        "PS124 Rama": 650,
+        "PS124 Black": 650,
+        "PS124 Pink": 650,
+
+        "HB-103 YELLOW NEW": 550,
+        "HB-103 INDIGO NEW": 550,
+        "HB-103 PINK NEW": 550,
+        "HB-103 RAMA NEW": 550,
+        "HB-103 WINE NEW": 550
+        
     }
 
     def get_cost(sku):
@@ -278,3 +287,4 @@ if claims_file:
         st.divider()
         st.header("🏁 FINAL TOTAL PROFIT")
         st.metric("Sales + Claims ₹", round(final_total, 2))
+
