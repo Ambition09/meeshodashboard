@@ -47,8 +47,6 @@ claims_file = st.file_uploader("Upload Claims CSV", type=["csv"])
 # ================= STAGE 1 — SALES ===================
 # =====================================================
 
-if orders_file:
-
     # =====================================
 # SAFE FILE READER (Excel + CSV)
 # =====================================
@@ -212,5 +210,6 @@ if claims_file:
                     "Purchase Cost", "Claim_Received", "Net Claim"]],
         use_container_width=True
     )
+
 
 
