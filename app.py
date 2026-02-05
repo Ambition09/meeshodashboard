@@ -49,7 +49,20 @@ claims_file = st.file_uploader("Upload Claims CSV", type=["csv"])
 
 if orders_file:
 
-    df = pd.read_excel(orders_file, header=1, engine="openpyxl")
+    # =====================================
+# SAFE FILE READER (Excel + CSV)
+# =====================================
+
+if orders_file.name.lower().endswith(".csv"):
+    df = pd.read_csv(orders_file)
+
+else:
+    df = pd.read_excel(
+        orders_file,
+        header=1,
+        engine="openpyxl"
+    )
+
     sku_col = "Supplier SKU"
     status_col = "Live Order Status"
     settlement_col = "Final Settlement Amount"
@@ -199,4 +212,5 @@ if claims_file:
                     "Purchase Cost", "Claim_Received", "Net Claim"]],
         use_container_width=True
     )
+
 
