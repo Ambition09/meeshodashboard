@@ -12,22 +12,23 @@ st.title("📊 Meesho Seller Dashboard")
 # =====================================================
 
 def clean_sku(x):
-    """Normalize SKU to avoid mismatch issues"""
     return str(x).strip().lower()
 
 
 def read_orders_file(file):
-    """Safely read CSV or Excel"""
     name = file.name.lower()
 
-    if name.endswith(".csv"):
-        return pd.read_csv(file)
+    if name.endswith(".xlsx") or name.endswith(".xls"):
+        try:
+            return pd.read_excel(file, header=1, engine="openpyxl")
+        except Exception:
+            file.seek(0)
+            return pd.read_csv(file)
 
-    return pd.read_excel(file, header=1, engine="openpyxl")
+    return pd.read_csv(file)
 
 
 def extract_amount(text):
-    """Extract Rs / Rs. amounts from claims text"""
     nums = re.findall(r'Rs\.?\s*(\d+(?:\.\d+)?)', str(text))
     return sum(float(x) for x in nums)
 
@@ -56,7 +57,7 @@ PURCHASE_COST_MAP = {
 # FILE UPLOADS
 # =====================================================
 
-orders_file = st.file_uploader("Upload Orders File (.xlsx or .csv)")
+orders_file = st.file_uploader("Upload Orders File (.xlsx / .csv)")
 claims_file = st.file_uploader("Upload Claims File (.csv)")
 
 
@@ -80,7 +81,6 @@ if orders_file:
     df["clean_sku"] = df[sku_col].apply(clean_sku)
     df["Purchase Cost"] = df["clean_sku"].map(PURCHASE_COST_MAP).fillna(0)
 
-    # Profit
     df["Profit"] = df.apply(
         lambda r: r[settlement_col] - r["Purchase Cost"]
         if r[status_col] == "Delivered"
@@ -88,7 +88,6 @@ if orders_file:
         axis=1
     )
 
-    # counts
     counts = (
         df.pivot_table(index=sku_col,
                        columns=status_col,
@@ -123,16 +122,11 @@ if orders_file:
     summary["Total Purchase"] = summary["Delivered"] * summary["Purchase Cost"]
     summary = summary.fillna(0)
 
-    # ================= KPIs =================
-
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Delivered", int(summary["Delivered"].sum()))
     c2.metric("Revenue ₹", round(summary["Revenue"].sum(), 2))
     c3.metric("Purchase ₹", round(summary["Total Purchase"].sum(), 2))
     c4.metric("Profit ₹", round(summary["Net Profit"].sum(), 2))
-
-
-    # ================= Charts =================
 
     col1, col2 = st.columns(2)
 
@@ -154,7 +148,6 @@ if orders_file:
         colors = ["green" if x > 0 else "red" for x in summary["Net Profit"]]
         ax.barh(summary[sku_col], summary["Net Profit"], color=colors)
         st.pyplot(fig)
-
 
     st.subheader("📋 Sales Table")
     st.dataframe(
@@ -209,11 +202,8 @@ if claims_file:
         sku_claims["Rejected_Qty"] * sku_claims["Purchase Cost"]
     )
 
-    sku_claims["Net Claim"] = (
-        sku_claims["Approved Profit"] - sku_claims["Rejected Loss"]
-    )
+    sku_claims["Net Claim"] = sku_claims["Approved Profit"] - sku_claims["Rejected Loss"]
 
-    # KPIs
     c1, c2, c3 = st.columns(3)
     c1.metric("Claim ₹", round(sku_claims["Claim_Received"].sum(), 2))
     c2.metric("Loss ₹", round(sku_claims["Rejected Loss"].sum(), 2))
