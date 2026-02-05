@@ -157,7 +157,6 @@ if claims_file:
         "PS124 Rama": 650,
         "PS124 Black": 650,
         "PS124 Pink": 650,
-
         "HB-103 YELLOW NEW": 550,
         "HB-103 INDIGO NEW": 550,
         "HB-103 PINK NEW": 550,
@@ -287,4 +286,5 @@ if claims_file:
         st.divider()
         st.header("🏁 FINAL TOTAL PROFIT")
         st.metric("Sales + Claims ₹", round(final_total, 2))
+
 
