@@ -8,7 +8,7 @@ st.set_page_config(page_title="Meesho Seller Dashboard", layout="wide")
 st.title("📊 Meesho Seller Master Dashboard")
 
 # =====================================================
-# PURCHASE COST MAP (NEW — SKU BASED)
+# PURCHASE COST MAP (UPDATED — SKU BASED)
 # =====================================================
 
 def clean_sku(x):
@@ -25,6 +25,13 @@ PURCHASE_COST_MAP = {
     clean_sku("HIRVA-221 RED NEW 1299"): 850,
     clean_sku("HB-103 YELLOW NEW"): 550,
     clean_sku("HB-221 Red"): 850,
+
+    # ✅ NEW SKUs ADDED
+    clean_sku("mirror - blue"): 850,
+    clean_sku("PS124 Black"): 650,
+    clean_sku("PS124 Pink"): 650,
+    clean_sku("MIRROR YELLOW"): 850,
+    clean_sku("PS124 Rama"): 650,
 }
 
 # =====================================================
@@ -109,7 +116,7 @@ if orders_file:
         summary["Purchase Cost"]
     )
 
-    # KPI
+    # KPI ROW
     c1, c2, c3, c4 = st.columns(4)
 
     c1.metric("Delivered + Shipped",
@@ -121,7 +128,7 @@ if orders_file:
     c4.metric("Net Profit ₹",
               round(summary["Net Profit"].sum(), 2))
 
-    # Charts
+    # CHARTS
     colA, colB = st.columns(2)
 
     with colA:
@@ -218,16 +225,14 @@ if claims_file:
     c2.metric("Rejected Loss ₹", round(sku_claims["Rejected Loss"].sum(), 2))
     c3.metric("Net Claims ₹", round(sku_claims["Net Claim"].sum(), 2))
 
-    # Table Only (as requested)
+    # TABLE ONLY (as requested)
     st.subheader("📋 Claims Table")
     st.dataframe(sku_claims.sort_values("Net Claim", ascending=False),
                  use_container_width=True)
 
-    # Final Total
+    # FINAL TOTAL
     if summary is not None:
         final_total = summary["Net Profit"].sum() + sku_claims["Net Claim"].sum()
         st.divider()
         st.header("🏁 FINAL TOTAL PROFIT")
         st.metric("Sales + Claims ₹", round(final_total, 2))
-
-
