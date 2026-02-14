@@ -15,16 +15,16 @@ def clean_sku(x):
     return str(x).strip().lower()
 
 PURCHASE_COST_MAP = {
-    clean_sku("MirrorBlue1"): 600,
-    clean_sku("HIRVA-221 PURPLE NEW 1299"): 600,
-    clean_sku("HB-221 Purple"): 600,
-    clean_sku("HB-103 INDIGO NEW"): 450,
-    clean_sku("HB-103 RAMA NEW"): 450,
-    clean_sku("HB-103 WINE NEW"): 450,
-    clean_sku("HB-103 PINK NEW"): 450,
-    clean_sku("HIRVA-221 RED NEW 1299"): 600,
-    clean_sku("HB-103 YELLOW NEW"): 450,
-    clean_sku("HB-221 Red"): 600,
+    clean_sku("MirrorBlue1"): 850,
+    clean_sku("HIRVA-221 PURPLE NEW 1299"): 850,
+    clean_sku("HB-221 Purple"): 850,
+    clean_sku("HB-103 INDIGO NEW"): 550,
+    clean_sku("HB-103 RAMA NEW"): 550,
+    clean_sku("HB-103 WINE NEW"): 550,
+    clean_sku("HB-103 PINK NEW"): 550,
+    clean_sku("HIRVA-221 RED NEW 1299"): 850,
+    clean_sku("HB-103 YELLOW NEW"): 550,
+    clean_sku("HB-221 Red"): 850,
 }
 
 # =====================================================
@@ -229,4 +229,5 @@ if claims_file:
         st.divider()
         st.header("🏁 FINAL TOTAL PROFIT")
         st.metric("Sales + Claims ₹", round(final_total, 2))
+
 
