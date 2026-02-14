@@ -8,30 +8,41 @@ st.set_page_config(page_title="Meesho Seller Dashboard", layout="wide")
 st.title("📊 Meesho Seller Master Dashboard")
 
 # =====================================================
-# PURCHASE COST MAP (UPDATED — SKU BASED)
+# PURCHASE COST MAP (FINAL UPDATED VERSION)
 # =====================================================
 
 def clean_sku(x):
     return str(x).strip().lower()
 
 PURCHASE_COST_MAP = {
+
+    # 850 Cost SKUs
     clean_sku("MirrorBlue1"): 850,
     clean_sku("HIRVA-221 PURPLE NEW 1299"): 850,
     clean_sku("HB-221 Purple"): 850,
+    clean_sku("HB-221 Red"): 850,
+    clean_sku("HIRVA-221 RED NEW 1299"): 850,
+    clean_sku("mirror - blue"): 850,
+    clean_sku("MIRROR YELLOW"): 850,
+
+    # 650 Cost SKUs
+    clean_sku("PS124 Black"): 650,
+    clean_sku("PS124 Pink"): 650,
+    clean_sku("PS124 Rama"): 650,
+
+    # 550 Cost SKUs
     clean_sku("HB-103 INDIGO NEW"): 550,
     clean_sku("HB-103 RAMA NEW"): 550,
     clean_sku("HB-103 WINE NEW"): 550,
     clean_sku("HB-103 PINK NEW"): 550,
-    clean_sku("HIRVA-221 RED NEW 1299"): 850,
     clean_sku("HB-103 YELLOW NEW"): 550,
-    clean_sku("HB-221 Red"): 850,
 
-    # ✅ NEW SKUs ADDED
-    clean_sku("mirror - blue"): 850,
-    clean_sku("PS124 Black"): 650,
-    clean_sku("PS124 Pink"): 650,
-    clean_sku("MIRROR YELLOW"): 850,
-    clean_sku("PS124 Rama"): 650,
+    clean_sku("HB-103 RAMA"): 550,
+    clean_sku("HB-103 YELLOW"): 550,
+    clean_sku("HB-103 PURPLE"): 550,
+    clean_sku("HB-103 PINK"): 550,
+    clean_sku("HB-103 INDIGO"): 550,
+    clean_sku("BH-221 Red NEW 1299"): 550,
 }
 
 # =====================================================
@@ -225,7 +236,7 @@ if claims_file:
     c2.metric("Rejected Loss ₹", round(sku_claims["Rejected Loss"].sum(), 2))
     c3.metric("Net Claims ₹", round(sku_claims["Net Claim"].sum(), 2))
 
-    # TABLE ONLY (as requested)
+    # TABLE
     st.subheader("📋 Claims Table")
     st.dataframe(sku_claims.sort_values("Net Claim", ascending=False),
                  use_container_width=True)
