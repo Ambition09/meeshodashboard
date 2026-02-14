@@ -7,46 +7,25 @@ st.set_page_config(page_title="Meesho Seller Dashboard", layout="wide")
 
 st.title("📊 Meesho Seller Master Dashboard")
 
-
 # =====================================================
-# HELPERS
+# PURCHASE COST MAP (NEW — SKU BASED)
 # =====================================================
-
-def clean_cols(df):
-    df.columns = df.columns.str.strip()
-    return df
-
 
 def clean_sku(x):
     return str(x).strip().lower()
 
-
-def extract_amount(text):
-    if pd.isna(text):
-        return 0
-    nums = re.findall(r'Rs\.?\s*(\d+(?:\.\d+)?)', str(text))
-    return sum(float(x) for x in nums)
-
-
-# =====================================================
-# PURCHASE COST MAP (SKU wise)
-# =====================================================
-
 PURCHASE_COST_MAP = {
+    clean_sku("MirrorBlue1"): 850,
+    clean_sku("HIRVA-221 PURPLE NEW 1299"): 850,
     clean_sku("HB-221 Purple"): 850,
-    clean_sku("MIRROR YELLOW"): 850,
-    clean_sku("mirror - blue"): 850,
-    clean_sku("HB-221 Red"): 850,
-    clean_sku("PS124 Rama"): 650,
-    clean_sku("PS124 Black"): 650,
-    clean_sku("PS124 Pink"): 650,
-    clean_sku("HB-103 YELLOW NEW"): 550,
     clean_sku("HB-103 INDIGO NEW"): 550,
-    clean_sku("HB-103 PINK NEW"): 550,
     clean_sku("HB-103 RAMA NEW"): 550,
-    clean_sku("HB-103 WINE NEW"): 550
+    clean_sku("HB-103 WINE NEW"): 550,
+    clean_sku("HB-103 PINK NEW"): 550,
+    clean_sku("HIRVA-221 RED NEW 1299"): 850,
+    clean_sku("HB-103 YELLOW NEW"): 550,
+    clean_sku("HB-221 Red"): 850,
 }
-
 
 # =====================================================
 # FILE UPLOADS
@@ -54,7 +33,6 @@ PURCHASE_COST_MAP = {
 
 orders_file = st.file_uploader("Upload Order Payments Excel", type=["xlsx"])
 claims_file = st.file_uploader("Upload Claims CSV", type=["csv"])
-
 
 # =====================================================
 # ================= STAGE 1 — SALES ===================
@@ -64,13 +42,7 @@ summary = None
 
 if orders_file:
 
-    df = pd.read_excel(
-        orders_file,
-        sheet_name="Order Payments",
-        header=1
-    )
-
-    df = clean_cols(df)
+    df = pd.read_excel(orders_file, sheet_name="Order Payments", header=1)
 
     sku_col = "Supplier SKU"
     status_col = "Live Order Status"
@@ -79,44 +51,39 @@ if orders_file:
     df = df.dropna(subset=[sku_col, status_col])
     df[settlement_col] = pd.to_numeric(df[settlement_col], errors="coerce").fillna(0)
 
-    # -------------------------------------------------
-    # Purchase cost mapping
-    # -------------------------------------------------
-    df["clean_sku"] = df[sku_col].apply(clean_sku)
-    df["Purchase Cost"] = df["clean_sku"].map(PURCHASE_COST_MAP).fillna(850)
+    sale_mask = df[status_col].isin(["Delivered", "Shipped"])
 
-    # -------------------------------------------------
-    # Profit calculation
-    # -------------------------------------------------
-    delivered_mask = df[status_col] == "Delivered"
+    def calc_profit(row):
+        purchase_cost = PURCHASE_COST_MAP.get(
+            clean_sku(row[sku_col]), 0
+        )
 
-    df["Profit"] = df[settlement_col]
-    df.loc[delivered_mask, "Profit"] = (
-        df.loc[delivered_mask, settlement_col]
-        - df.loc[delivered_mask, "Purchase Cost"]
-    )
+        if row[status_col] in ["Delivered", "Shipped"]:
+            return row[settlement_col] - purchase_cost
+        else:
+            return row[settlement_col]
 
-    # =================================================
-    # Aggregations (UNCHANGED LOGIC)
-    # =================================================
+    df["Profit"] = df.apply(calc_profit, axis=1)
 
     counts = (
-        df.pivot_table(
-            index=sku_col,
-            columns=status_col,
-            aggfunc='size',
-            fill_value=0
-        )
+        df.pivot_table(index=sku_col,
+                       columns=status_col,
+                       aggfunc='size',
+                       fill_value=0)
         .reset_index()
     )
 
-    # ensure these always exist
-    for col in ["Delivered", "Return", "RTO"]:
+    for col in ["Delivered", "Return", "RTO", "Shipped"]:
         if col not in counts.columns:
             counts[col] = 0
 
+    counts["Return %"] = (
+        counts["Return"] /
+        (counts["Return"] + counts["Delivered"]).replace(0, 1)
+    ) * 100
+
     revenue = (
-        df[delivered_mask]
+        df[sale_mask]
         .groupby(sku_col)[settlement_col]
         .sum()
         .reset_index(name="Revenue")
@@ -128,77 +95,66 @@ if orders_file:
         .reset_index(name="Net Profit")
     )
 
-    purchase = (
-        df.groupby(sku_col)["Purchase Cost"]
-        .first()
-        .reset_index()
-    )
-
     summary = counts.merge(revenue, on=sku_col, how="left")
     summary = summary.merge(profit, on=sku_col, how="left")
-    summary = summary.merge(purchase, on=sku_col, how="left")
 
     summary = summary.fillna(0).round(2)
 
-    # -------------------------------------------------
-    # 🔥 NEW COLUMN ADDED (nothing removed)
-    # -------------------------------------------------
-    summary["Total Purchase"] = summary["Delivered"] * summary["Purchase Cost"]
+    summary["Purchase Cost"] = summary[sku_col].apply(
+        lambda x: PURCHASE_COST_MAP.get(clean_sku(x), 0)
+    )
 
-    # =================================================
-    # KPI ROW
-    # =================================================
+    summary["Total Purchase"] = (
+        (summary["Delivered"] + summary["Shipped"]) *
+        summary["Purchase Cost"]
+    )
 
+    # KPI
     c1, c2, c3, c4 = st.columns(4)
 
-    c1.metric("Delivered", int(summary["Delivered"].sum()))
-    c2.metric("Returns", int(summary["Return"].sum()))
-    c3.metric("Revenue ₹", round(summary["Revenue"].sum(), 2))
-    c4.metric("Net Profit ₹", round(summary["Net Profit"].sum(), 2))
+    c1.metric("Delivered + Shipped",
+              int(summary["Delivered"].sum() + summary["Shipped"].sum()))
+    c2.metric("Returns",
+              int(summary["Return"].sum()))
+    c3.metric("Revenue ₹",
+              round(summary["Revenue"].sum(), 2))
+    c4.metric("Net Profit ₹",
+              round(summary["Net Profit"].sum(), 2))
 
-
-    # =================================================
-    # CHARTS (unchanged)
-    # =================================================
-
+    # Charts
     colA, colB = st.columns(2)
 
     with colA:
+        st.subheader("Order Mix")
         fig, ax = plt.subplots(figsize=(3, 3))
         vals = [
-            summary["Delivered"].sum(),
+            summary["Delivered"].sum() + summary["Shipped"].sum(),
             summary["Return"].sum(),
             summary["RTO"].sum()
         ]
-        ax.pie(vals, labels=["Del", "Ret", "RTO"], autopct='%1.0f%%')
+        ax.pie(vals, labels=["Sales", "Return", "RTO"], autopct='%1.0f%%')
         st.pyplot(fig)
 
     with colB:
+        st.subheader("Profit by SKU")
         profit_df = summary.sort_values("Net Profit")
-
         fig, ax = plt.subplots(figsize=(5, 3))
-        colors = ["green" if x > 0 else "red" for x in profit_df["Net Profit"]]
-
-        ax.barh(profit_df[sku_col], profit_df["Net Profit"], color=colors)
+        colors = ["green" if x > 0 else "red"
+                  for x in profit_df["Net Profit"]]
+        ax.barh(profit_df[sku_col],
+                profit_df["Net Profit"],
+                color=colors)
         ax.set_xlabel("₹")
         st.pyplot(fig)
 
-
-    # =================================================
-    # TABLE  (ALL columns kept + purchase added)
-    # =================================================
-
     st.subheader("📋 SKU Performance Table")
-
-    st.dataframe(
-        summary.sort_values("Net Profit", ascending=False),
-        use_container_width=True
-    )
-
+    st.dataframe(summary.sort_values("Net Profit", ascending=False),
+                 use_container_width=True)
 
 # =====================================================
 # ================= STAGE 2 — CLAIMS ==================
 # =====================================================
+
 if claims_file:
 
     st.divider()
@@ -209,21 +165,6 @@ if claims_file:
     status_col = "Ticket Status"
     sku_col = "SKU"
 
-    PURCHASE_COST_MAP = {
-        "HB-103 YELLOW": 550,
-        "PS124 Pink": 550,
-        "HB-103 INDIGO": 550,
-        "HB-103 RAMA": 550,
-        "MirrorBlue1": 850
-    }
-
-    def get_cost(sku):
-        return PURCHASE_COST_MAP.get(sku, 0)
-
-
-    # =================================================
-    # FIXED MONEY EXTRACTION (Rs / Rs.)
-    # =================================================
     def extract_amount(text):
         if pd.isna(text):
             return 0
@@ -254,7 +195,9 @@ if claims_file:
 
     sku_claims = approved_grp.merge(rejected_grp, on=sku_col, how="outer").fillna(0)
 
-    sku_claims["Purchase Cost"] = sku_claims[sku_col].map(get_cost)
+    sku_claims["Purchase Cost"] = sku_claims[sku_col].apply(
+        lambda x: PURCHASE_COST_MAP.get(clean_sku(x), 0)
+    )
 
     sku_claims["Approved Profit"] = (
         sku_claims["Claim_Received"]
@@ -269,72 +212,20 @@ if claims_file:
         sku_claims["Approved Profit"] - sku_claims["Rejected Loss"]
     )
 
-
-    # =================================================
-    # KPI ROW
-    # =================================================
-
+    # KPI
     c1, c2, c3 = st.columns(3)
-
     c1.metric("Total Claim ₹", round(sku_claims["Claim_Received"].sum(), 2))
     c2.metric("Rejected Loss ₹", round(sku_claims["Rejected Loss"].sum(), 2))
     c3.metric("Net Claims ₹", round(sku_claims["Net Claim"].sum(), 2))
 
-
-    # =================================================
-    # COMPACT CHARTS ROW
-    # =================================================
-
-    colC, colD = st.columns(2)
-
-    # ---------- Claims impact ----------
-    with colC:
-        st.subheader("Claims Impact")
-
-        claims_chart = sku_claims.set_index(sku_col)
-
-        fig, ax = plt.subplots(figsize=(5, 3))
-
-        ax.bar(claims_chart.index, claims_chart["Approved Profit"], label="Recovered")
-        ax.bar(claims_chart.index,
-               claims_chart["Rejected Loss"],
-               bottom=claims_chart["Approved Profit"],
-               label="Loss")
-
-        plt.xticks(rotation=45)
-        ax.legend()
-
-        st.pyplot(fig)
-
-    # ---------- Net claim by SKU ----------
-    with colD:
-        st.subheader("Net Claim by SKU")
-
-        fig, ax = plt.subplots(figsize=(5, 3))
-
-        colors = ["green" if x > 0 else "red" for x in sku_claims["Net Claim"]]
-
-        ax.barh(sku_claims[sku_col], sku_claims["Net Claim"], color=colors)
-
-        st.pyplot(fig)
-
-
-    # =================================================
-    # TABLE
-    # =================================================
-
+    # Table Only (as requested)
     st.subheader("📋 Claims Table")
     st.dataframe(sku_claims.sort_values("Net Claim", ascending=False),
                  use_container_width=True)
 
-
-    # =================================================
-    # FINAL TOTAL
-    # =================================================
-
-    if orders_file:
+    # Final Total
+    if summary is not None:
         final_total = summary["Net Profit"].sum() + sku_claims["Net Claim"].sum()
-
         st.divider()
         st.header("🏁 FINAL TOTAL PROFIT")
         st.metric("Sales + Claims ₹", round(final_total, 2))
