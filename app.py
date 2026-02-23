@@ -17,32 +17,32 @@ def clean_sku(x):
 PURCHASE_COST_MAP = {
 
     # 850 Cost SKUs
-    clean_sku("MirrorBlue1"): 600,
-    clean_sku("HIRVA-221 PURPLE NEW 1299"): 600,
-    clean_sku("HB-221 Purple"): 600,
-    clean_sku("HB-221 Red"): 600,
-    clean_sku("HIRVA-221 RED NEW 1299"): 600,
-    clean_sku("mirror - blue"): 600,
-    clean_sku("MIRROR YELLOW"): 600,
+    clean_sku("MirrorBlue1"): 850,
+    clean_sku("HIRVA-221 PURPLE NEW 1299"): 850,
+    clean_sku("HB-221 Purple"): 850,
+    clean_sku("HB-221 Red"): 850,
+    clean_sku("HIRVA-221 RED NEW 1299"): 850,
+    clean_sku("mirror - blue"): 850,
+    clean_sku("MIRROR YELLOW"): 850,
 
     # 650 Cost SKUs
-    clean_sku("PS124 Black"): 550,
-    clean_sku("PS124 Pink"): 550,
-    clean_sku("PS124 Rama"): 550,
+    clean_sku("PS124 Black"): 650,
+    clean_sku("PS124 Pink"): 650,
+    clean_sku("PS124 Rama"): 650,
 
     # 550 Cost SKUs
-    clean_sku("HB-103 INDIGO NEW"): 450,
-    clean_sku("HB-103 RAMA NEW"): 450,
-    clean_sku("HB-103 WINE NEW"): 450,
-    clean_sku("HB-103 PINK NEW"): 450,
-    clean_sku("HB-103 YELLOW NEW"): 450,
+    clean_sku("HB-103 INDIGO NEW"): 550,
+    clean_sku("HB-103 RAMA NEW"): 550,
+    clean_sku("HB-103 WINE NEW"): 550,
+    clean_sku("HB-103 PINK NEW"): 550,
+    clean_sku("HB-103 YELLOW NEW"): 550,
 
-    clean_sku("HB-103 RAMA"): 450,
-    clean_sku("HB-103 YELLOW"): 450,
-    clean_sku("HB-103 PURPLE"): 450,
-    clean_sku("HB-103 PINK"): 450,
-    clean_sku("HB-103 INDIGO"): 450,
-    clean_sku("BH-221 Red NEW 1299"): 600,
+    clean_sku("HB-103 RAMA"): 550,
+    clean_sku("HB-103 YELLOW"): 550,
+    clean_sku("HB-103 PURPLE"): 550,
+    clean_sku("HB-103 PINK"): 550,
+    clean_sku("HB-103 INDIGO"): 550,
+    clean_sku("BH-221 Red NEW 1299"): 850,
 }
 # =====================================================
 # FILE UPLOADS
@@ -246,6 +246,7 @@ if claims_file:
         st.divider()
         st.header("🏁 FINAL TOTAL PROFIT")
         st.metric("Sales + Claims ₹", round(final_total, 2))
+
 
 
 
