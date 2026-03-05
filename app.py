@@ -8,25 +8,48 @@ st.set_page_config(page_title="Meesho Seller Dashboard", layout="wide")
 st.title("📊 Meesho Seller Master Dashboard")
 
 # =====================================================
+# PROFESSIONAL FONT
+# =====================================================
+
+st.markdown(
+    '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">',
+    unsafe_allow_html=True
+)
+
+# =====================================================
 # DARK NAVY THEME
 # =====================================================
 
 st.markdown("""
 <style>
 
-[data-testid="stAppViewContainer"] {
-    background-color: #00022E;
-    color: white;
+html, body, [class*="css"]  {
+    font-family: 'Inter', sans-serif;
+    color: white !important;
 }
 
+/* Main background */
+[data-testid="stAppViewContainer"] {
+    background-color: #00022E;
+}
+
+/* Header */
 [data-testid="stHeader"] {
     background-color: #00022E;
 }
 
-h1, h2, h3, h4 {
+/* File uploader labels */
+[data-testid="stFileUploader"] label {
     color: white !important;
+    font-size: 16px;
+    font-weight: 600;
 }
 
+[data-testid="stFileUploader"] span {
+    color: #D1D5FF !important;
+}
+
+/* KPI cards */
 .stMetric {
     background-color: #050845;
     border-radius: 12px;
@@ -34,9 +57,20 @@ h1, h2, h3, h4 {
     border: 1px solid #1a1e6a;
 }
 
+/* Tables */
 [data-testid="stDataFrame"] {
     background-color: #050845;
     border-radius: 10px;
+}
+
+/* Headings */
+h1, h2, h3 {
+    color: white !important;
+}
+
+/* Sidebar */
+section[data-testid="stSidebar"] {
+    background-color: #00022E;
 }
 
 </style>
@@ -109,9 +143,9 @@ if orders_file:
     single_df = df[df[order_col].isin(single_orders)].copy()
     duplicate_df = df[df[order_col].isin(duplicate_orders)].copy()
 
-    # =========================
+    # =====================================================
     # SINGLE ORDER PROFIT
-    # =========================
+    # =====================================================
 
     def single_profit(row):
         purchase_cost = PURCHASE_COST_MAP.get(clean_sku(row[sku_col]), 0)
@@ -123,9 +157,9 @@ if orders_file:
 
     single_df["Profit"] = single_df.apply(single_profit, axis=1)
 
-    # =========================
+    # =====================================================
     # DUPLICATE ORDERS
-    # =========================
+    # =====================================================
 
     duplicate_grouped = (
         duplicate_df
@@ -148,20 +182,22 @@ if orders_file:
 
     duplicate_grouped["Profit"] = duplicate_grouped.apply(duplicate_profit, axis=1)
 
-    # =========================
+    # =====================================================
     # DISPLAY TABLES
-    # =========================
+    # =====================================================
 
     st.subheader("🔁 Duplicate Orders")
     st.dataframe(duplicate_grouped, use_container_width=True)
 
     st.subheader("📄 Single Orders")
-    st.dataframe(single_df[[order_col, sku_col, status_col, settlement_col, "Profit"]],
-                 use_container_width=True)
+    st.dataframe(
+        single_df[[order_col, sku_col, status_col, settlement_col, "Profit"]],
+        use_container_width=True
+    )
 
-    # =========================
+    # =====================================================
     # FINAL DATASET
-    # =========================
+    # =====================================================
 
     final_df = pd.concat([
         single_df[[sku_col, status_col, settlement_col, "Profit"]],
@@ -171,11 +207,12 @@ if orders_file:
     sale_mask = final_df[status_col].isin(["Delivered", "Shipped"])
 
     counts = (
-        final_df.pivot_table(index=sku_col,
-                       columns=status_col,
-                       aggfunc='size',
-                       fill_value=0)
-        .reset_index()
+        final_df.pivot_table(
+            index=sku_col,
+            columns=status_col,
+            aggfunc='size',
+            fill_value=0
+        ).reset_index()
     )
 
     for col in ["Delivered", "Return", "RTO", "Shipped"]:
@@ -209,9 +246,9 @@ if orders_file:
         summary["Purchase Cost"]
     )
 
-    # =========================
+    # =====================================================
     # KPIs
-    # =========================
+    # =====================================================
 
     c1, c2, c3, c4 = st.columns(4)
 
@@ -227,9 +264,9 @@ if orders_file:
     c4.metric("Net Profit ₹",
               round(summary["Net Profit"].sum(), 2))
 
-    # =========================
+    # =====================================================
     # CHARTS
-    # =========================
+    # =====================================================
 
     colA, colB = st.columns(2)
 
@@ -245,10 +282,12 @@ if orders_file:
             summary["RTO"].sum()
         ]
 
-        ax.pie(vals,
-               labels=["Sales","Return","RTO"],
-               autopct='%1.0f%%',
-               colors=["#4DA3FF","#FF6B6B","#FFD166"])
+        ax.pie(
+            vals,
+            labels=["Sales","Return","RTO"],
+            autopct='%1.0f%%',
+            colors=["#4DA3FF","#FF6B6B","#FFD166"]
+        )
 
         st.pyplot(fig)
 
@@ -263,9 +302,11 @@ if orders_file:
         colors = ["#4CAF50" if x > 0 else "#FF4B4B"
                   for x in profit_df["Net Profit"]]
 
-        ax.barh(profit_df[sku_col],
-                profit_df["Net Profit"],
-                color=colors)
+        ax.barh(
+            profit_df[sku_col],
+            profit_df["Net Profit"],
+            color=colors
+        )
 
         ax.set_xlabel("₹")
 
