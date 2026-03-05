@@ -5,76 +5,90 @@ import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Meesho Seller Dashboard", layout="wide")
 
-st.title("📊 Meesho Seller Master Dashboard")
-
-# =====================================================
-# PROFESSIONAL FONT
-# =====================================================
+# -----------------------------------------------------
+# FONT
+# -----------------------------------------------------
 
 st.markdown(
     '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">',
     unsafe_allow_html=True
 )
 
-# =====================================================
-# DARK NAVY THEME
-# =====================================================
+# -----------------------------------------------------
+# DARK THEME
+# -----------------------------------------------------
 
 st.markdown("""
 <style>
 
+/* GLOBAL FONT */
 html, body, [class*="css"]  {
     font-family: 'Inter', sans-serif;
-    color: white !important;
 }
 
-/* Main background */
+/* BACKGROUND */
 [data-testid="stAppViewContainer"] {
     background-color: #00022E;
 }
 
-/* Header */
-[data-testid="stHeader"] {
-    background-color: #00022E;
+/* HEADINGS */
+h1, h2, h3, h4 {
+    color: white !important;
 }
 
-/* File uploader labels */
+/* FILE UPLOADER TEXT */
 [data-testid="stFileUploader"] label {
     color: white !important;
-    font-size: 16px;
     font-weight: 600;
 }
 
 [data-testid="stFileUploader"] span {
-    color: #D1D5FF !important;
+    color: #A8B2FF !important;
 }
 
-/* KPI cards */
-.stMetric {
-    background-color: #050845;
-    border-radius: 12px;
-    padding: 15px;
-    border: 1px solid #1a1e6a;
+/* KPI CARDS */
+[data-testid="stMetric"] {
+    background: linear-gradient(145deg,#050845,#0b0f63);
+    padding: 25px;
+    border-radius: 14px;
+    border: 1px solid #2b2fa3;
+    transition: all 0.2s ease;
 }
 
-/* Tables */
+/* KPI HOVER EFFECT */
+[data-testid="stMetric"]:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+}
+
+/* KPI LABEL */
+[data-testid="stMetricLabel"] {
+    color: #9CA3FF !important;
+    font-size: 15px !important;
+}
+
+/* KPI VALUE */
+[data-testid="stMetricValue"] {
+    color: white !important;
+    font-size: 36px !important;
+    font-weight: 600;
+}
+
+/* TABLES */
 [data-testid="stDataFrame"] {
     background-color: #050845;
-    border-radius: 10px;
+    border-radius: 12px;
 }
 
-/* Headings */
-h1, h2, h3 {
-    color: white !important;
-}
-
-/* Sidebar */
-section[data-testid="stSidebar"] {
-    background-color: #00022E;
+/* PAGE SPACING */
+.block-container {
+    padding-top: 2rem;
 }
 
 </style>
 """, unsafe_allow_html=True)
+
+st.title("📊 Meesho Seller Master Dashboard")
 
 # =====================================================
 # PURCHASE COST MAP
@@ -120,7 +134,7 @@ claims_file = st.file_uploader("Upload Claims CSV", type=["csv"])
 summary = None
 
 # =====================================================
-# SALES SECTION
+# SALES
 # =====================================================
 
 if orders_file:
@@ -143,9 +157,7 @@ if orders_file:
     single_df = df[df[order_col].isin(single_orders)].copy()
     duplicate_df = df[df[order_col].isin(duplicate_orders)].copy()
 
-    # =====================================================
-    # SINGLE ORDER PROFIT
-    # =====================================================
+    # SINGLE ORDERS
 
     def single_profit(row):
         purchase_cost = PURCHASE_COST_MAP.get(clean_sku(row[sku_col]), 0)
@@ -157,9 +169,7 @@ if orders_file:
 
     single_df["Profit"] = single_df.apply(single_profit, axis=1)
 
-    # =====================================================
     # DUPLICATE ORDERS
-    # =====================================================
 
     duplicate_grouped = (
         duplicate_df
@@ -182,10 +192,6 @@ if orders_file:
 
     duplicate_grouped["Profit"] = duplicate_grouped.apply(duplicate_profit, axis=1)
 
-    # =====================================================
-    # DISPLAY TABLES
-    # =====================================================
-
     st.subheader("🔁 Duplicate Orders")
     st.dataframe(duplicate_grouped, use_container_width=True)
 
@@ -194,10 +200,6 @@ if orders_file:
         single_df[[order_col, sku_col, status_col, settlement_col, "Profit"]],
         use_container_width=True
     )
-
-    # =====================================================
-    # FINAL DATASET
-    # =====================================================
 
     final_df = pd.concat([
         single_df[[sku_col, status_col, settlement_col, "Profit"]],
@@ -246,9 +248,7 @@ if orders_file:
         summary["Purchase Cost"]
     )
 
-    # =====================================================
     # KPIs
-    # =====================================================
 
     c1, c2, c3, c4 = st.columns(4)
 
@@ -264,9 +264,7 @@ if orders_file:
     c4.metric("Net Profit ₹",
               round(summary["Net Profit"].sum(), 2))
 
-    # =====================================================
     # CHARTS
-    # =====================================================
 
     colA, colB = st.columns(2)
 
@@ -320,7 +318,7 @@ if orders_file:
     )
 
 # =====================================================
-# CLAIMS SECTION (UNCHANGED)
+# CLAIMS
 # =====================================================
 
 if claims_file:
