@@ -122,7 +122,7 @@ PURCHASE_COST_MAP = {
     clean_sku("HB-103 PINK"): 550,
     clean_sku("HB-103 INDIGO"): 550,
     clean_sku("BH-221 Red NEW 1299"): 850,
-    clean_sku("221-Unstiched-Purple"): 850,
+    clean_sku("221-Unstiched-Purple"): 450,
     clean_sku("221 Red XXL"): 850,
     clean_sku("221 Purple XXL"): 850,
     clean_sku("221 Red"): 850,
@@ -404,5 +404,6 @@ if claims_file:
         st.header("🏁 FINAL TOTAL PROFIT")
 
         st.metric("Sales + Claims ₹", round(final_total, 2))
+
 
 
