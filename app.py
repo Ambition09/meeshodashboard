@@ -129,7 +129,7 @@ PURCHASE_COST_MAP = {
     clean_sku("221 Purple"): 850,
     clean_sku("H-201 maroon"): 550,
     clean_sku("BH-221 Purple NEW 1299"): 850,
-    
+    clean_sku("221-Unstiched-Red"): 480,
 }
 
 # =====================================================
