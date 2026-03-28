@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 import pandas as pd
 import re
@@ -191,7 +192,7 @@ if orders_file:
     sale_mask = final_df[status_col].isin(["Delivered", "Shipped"])
 
     # =========================
-    # FIXED COUNTS
+    # COUNTS (FIXED)
     # =========================
 
     counts = (
@@ -208,6 +209,10 @@ if orders_file:
     for col in ["Delivered", "Return", "RTO", "Shipped"]:
         if col not in counts.columns:
             counts[col] = 0
+
+    # =========================
+    # REVENUE + PROFIT
+    # =========================
 
     revenue = (
         final_df[sale_mask]
@@ -227,6 +232,10 @@ if orders_file:
 
     summary = summary.fillna(0).round(2)
 
+    # =========================
+    # PURCHASE
+    # =========================
+
     summary["Purchase Cost"] = summary[sku_col].apply(
         lambda x: PURCHASE_COST_MAP.get(clean_sku(x), 0)
     )
@@ -237,17 +246,19 @@ if orders_file:
     )
 
     # =========================
-    # RETURN %
+    # RETURN % (YOUR LOGIC)
     # =========================
 
     summary["Return %"] = (
         summary["Return"] /
-        (summary["Delivered"] + summary["Return"] + summary["RTO"] + summary["Shipped"])
+        (summary["Delivered"] + summary["Shipped"] + summary["Return"])
     ).replace([float('inf')], 0).fillna(0) * 100
 
     summary["Return %"] = summary["Return %"].round(2)
 
+    # =========================
     # KPIs
+    # =========================
 
     c1, c2, c3, c4 = st.columns(4)
 
@@ -263,7 +274,9 @@ if orders_file:
     c4.metric("Net Profit ₹",
               round(summary["Net Profit"].sum(), 2))
 
-    # TABLE
+    # =========================
+    # FINAL TABLE
+    # =========================
 
     st.subheader("📋 SKU Performance Table")
 
@@ -354,3 +367,4 @@ if claims_file:
         st.header("🏁 FINAL TOTAL PROFIT")
 
         st.metric("Sales + Claims ₹", round(final_total, 2))
+```
