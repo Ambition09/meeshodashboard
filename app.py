@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 import pandas as pd
 import re
@@ -20,23 +21,18 @@ st.markdown(
 
 st.markdown("""
 <style>
-
-/* GLOBAL FONT */
 html, body, [class*="css"]  {
     font-family: 'Inter', sans-serif;
 }
 
-/* BACKGROUND */
 [data-testid="stAppViewContainer"] {
     background-color: #00022E;
 }
 
-/* HEADINGS */
 h1, h2, h3, h4 {
     color: white !important;
 }
 
-/* FILE UPLOADER TEXT */
 [data-testid="stFileUploader"] label {
     color: white !important;
     font-weight: 600;
@@ -46,7 +42,6 @@ h1, h2, h3, h4 {
     color: #A8B2FF !important;
 }
 
-/* KPI CARDS */
 [data-testid="stMetric"] {
     background: linear-gradient(145deg,#050845,#0b0f63);
     padding: 25px;
@@ -55,36 +50,30 @@ h1, h2, h3, h4 {
     transition: all 0.2s ease;
 }
 
-/* KPI HOVER EFFECT */
 [data-testid="stMetric"]:hover {
     transform: translateY(-3px);
     box-shadow: 0 10px 25px rgba(0,0,0,0.4);
 }
 
-/* KPI LABEL */
 [data-testid="stMetricLabel"] {
     color: #9CA3FF !important;
     font-size: 15px !important;
 }
 
-/* KPI VALUE */
 [data-testid="stMetricValue"] {
     color: white !important;
     font-size: 36px !important;
     font-weight: 600;
 }
 
-/* TABLES */
 [data-testid="stDataFrame"] {
     background-color: #050845;
     border-radius: 12px;
 }
 
-/* PAGE SPACING */
 .block-container {
     padding-top: 2rem;
 }
-
 </style>
 """, unsafe_allow_html=True)
 
@@ -98,7 +87,6 @@ def clean_sku(x):
     return str(x).strip().lower()
 
 PURCHASE_COST_MAP = {
-
     clean_sku("MirrorBlue1"): 850,
     clean_sku("HIRVA-221 PURPLE NEW 1299"): 850,
     clean_sku("HB-221 Purple"): 850,
@@ -121,6 +109,7 @@ PURCHASE_COST_MAP = {
     clean_sku("HB-103 PURPLE"): 550,
     clean_sku("HB-103 PINK"): 550,
     clean_sku("HB-103 INDIGO"): 550,
+
     clean_sku("BH-221 Red NEW 1299"): 850,
     clean_sku("221-Unstiched-Purple"): 450,
     clean_sku("221 Red XXL"): 850,
@@ -130,7 +119,7 @@ PURCHASE_COST_MAP = {
     clean_sku("H-201 maroon"): 550,
     clean_sku("BH-221 Purple NEW 1299"): 850,
     clean_sku("221-Unstiched-Red"): 480,
-    clean_sku("103-Unstiched-Yellow"):450,
+    clean_sku("103-Unstiched-Yellow"): 450,
 }
 
 # =====================================================
@@ -166,19 +155,14 @@ if orders_file:
     single_df = df[df[order_col].isin(single_orders)].copy()
     duplicate_df = df[df[order_col].isin(duplicate_orders)].copy()
 
-    # SINGLE ORDERS
-
     def single_profit(row):
         purchase_cost = PURCHASE_COST_MAP.get(clean_sku(row[sku_col]), 0)
-
         if row[status_col] in ["Delivered", "Shipped"]:
             return row[settlement_col] - purchase_cost
         else:
             return row[settlement_col]
 
     single_df["Profit"] = single_df.apply(single_profit, axis=1)
-
-    # DUPLICATE ORDERS
 
     duplicate_grouped = (
         duplicate_df
@@ -193,7 +177,6 @@ if orders_file:
 
     def duplicate_profit(row):
         purchase_cost = PURCHASE_COST_MAP.get(clean_sku(row[sku_col]), 0)
-
         if row[status_col] in ["Delivered", "Shipped"]:
             return row[settlement_col] - purchase_cost
         else:
@@ -201,21 +184,16 @@ if orders_file:
 
     duplicate_grouped["Profit"] = duplicate_grouped.apply(duplicate_profit, axis=1)
 
-    st.subheader("🔁 Duplicate Orders")
-    st.dataframe(duplicate_grouped, use_container_width=True)
-
-    st.subheader("📄 Single Orders")
-    st.dataframe(
-        single_df[[order_col, sku_col, status_col, settlement_col, "Profit"]],
-        use_container_width=True
-    )
-
     final_df = pd.concat([
         single_df[[sku_col, status_col, settlement_col, "Profit"]],
         duplicate_grouped[[sku_col, status_col, settlement_col, "Profit"]]
     ])
 
     sale_mask = final_df[status_col].isin(["Delivered", "Shipped"])
+
+    # =========================
+    # FIXED COUNTS
+    # =========================
 
     counts = (
         final_df.pivot_table(
@@ -225,6 +203,8 @@ if orders_file:
             fill_value=0
         ).reset_index()
     )
+
+    counts.columns.name = None
 
     for col in ["Delivered", "Return", "RTO", "Shipped"]:
         if col not in counts.columns:
@@ -257,6 +237,17 @@ if orders_file:
         summary["Purchase Cost"]
     )
 
+    # =========================
+    # RETURN %
+    # =========================
+
+    summary["Return %"] = (
+        summary["Return"] /
+        (summary["Delivered"] + summary["Return"] + summary["RTO"] + summary["Shipped"])
+    ).replace([float('inf')], 0).fillna(0) * 100
+
+    summary["Return %"] = summary["Return %"].round(2)
+
     # KPIs
 
     c1, c2, c3, c4 = st.columns(4)
@@ -273,56 +264,12 @@ if orders_file:
     c4.metric("Net Profit ₹",
               round(summary["Net Profit"].sum(), 2))
 
-    # CHARTS
-
-    colA, colB = st.columns(2)
-
-    with colA:
-
-        st.subheader("Order Mix")
-
-        fig, ax = plt.subplots(figsize=(3,3))
-
-        vals = [
-            summary["Delivered"].sum() + summary["Shipped"].sum(),
-            summary["Return"].sum(),
-            summary["RTO"].sum()
-        ]
-
-        ax.pie(
-            vals,
-            labels=["Sales","Return","RTO"],
-            autopct='%1.0f%%',
-            colors=["#4DA3FF","#FF6B6B","#FFD166"]
-        )
-
-        st.pyplot(fig)
-
-    with colB:
-
-        st.subheader("Profit by SKU")
-
-        profit_df = summary.sort_values("Net Profit")
-
-        fig, ax = plt.subplots(figsize=(5,3))
-
-        colors = ["#4CAF50" if x > 0 else "#FF4B4B"
-                  for x in profit_df["Net Profit"]]
-
-        ax.barh(
-            profit_df[sku_col],
-            profit_df["Net Profit"],
-            color=colors
-        )
-
-        ax.set_xlabel("₹")
-
-        st.pyplot(fig)
+    # TABLE
 
     st.subheader("📋 SKU Performance Table")
 
     st.dataframe(
-        summary.sort_values("Net Profit", ascending=False),
+        summary.sort_values("Net Profit", ascending=False).reset_index(drop=True),
         use_container_width=True
     )
 
@@ -396,7 +343,7 @@ if claims_file:
     st.subheader("📋 Claims Table")
 
     st.dataframe(
-        sku_claims.sort_values("Net Claim", ascending=False),
+        sku_claims.sort_values("Net Claim", ascending=False).reset_index(drop=True),
         use_container_width=True
     )
 
@@ -408,6 +355,4 @@ if claims_file:
         st.header("🏁 FINAL TOTAL PROFIT")
 
         st.metric("Sales + Claims ₹", round(final_total, 2))
-
-
-
+```
