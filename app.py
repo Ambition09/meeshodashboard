@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import pandas as pd
 import re
@@ -367,4 +366,3 @@ if claims_file:
         st.header("🏁 FINAL TOTAL PROFIT")
 
         st.metric("Sales + Claims ₹", round(final_total, 2))
-```
