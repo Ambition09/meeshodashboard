@@ -104,26 +104,15 @@ if orders_file:
     ).fillna(0)
 
     # =================================================
-    # KPI TOTALS
+    # TOTALS
     # =================================================
 
     positive_total = df[df[settlement_col] > 0][settlement_col].sum()
     negative_total = abs(df[df[settlement_col] < 0][settlement_col].sum())
-    net_total = df[settlement_col].sum()
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric("Revenue ₹", round(positive_total, 2))
-    c2.metric("Returns ₹", round(negative_total, 2))
-    c3.metric("Net Settlement ₹", round(net_total, 2))
-
-    if round(positive_total - negative_total, 2) == round(net_total, 2):
-        c4.metric("Validation", "Matched ✅")
-    else:
-        c4.metric("Validation", "Mismatch ❌")
+    net_settlement = df[settlement_col].sum()
 
     # =================================================
-    # SKU LEVEL SUMMARY
+    # SKU LEVEL DATA
     # =================================================
 
     revenue = (
@@ -147,10 +136,6 @@ if orders_file:
         .reset_index(name="Net Settlement")
     )
 
-    # =================================================
-    # COUNTS
-    # =================================================
-
     counts = (
         df.pivot_table(
             index=sku_col,
@@ -163,26 +148,21 @@ if orders_file:
 
     counts.columns.name = None
 
-    needed_cols = [
+    for col in [
         "Delivered",
         "Return",
         "RTO",
         "Shipped",
         "Cancelled",
         "Exchange"
-    ]
-
-    for col in needed_cols:
+    ]:
         if col not in counts.columns:
             counts[col] = 0
-
-    # =================================================
-    # MERGE
-    # =================================================
 
     summary = counts.merge(revenue, on=sku_col, how="left")
     summary = summary.merge(returns, on=sku_col, how="left")
     summary = summary.merge(payout, on=sku_col, how="left")
+
     summary = summary.fillna(0)
 
     # =================================================
@@ -193,7 +173,6 @@ if orders_file:
         lambda x: PURCHASE_COST_MAP.get(clean_sku(x), 0)
     )
 
-    # cancelled now charged purchase cost also
     summary["Total Purchase"] = (
         (
             summary["Delivered"] +
@@ -204,13 +183,26 @@ if orders_file:
     )
 
     # =================================================
-    # REAL PROFIT
+    # NET PROFIT
     # =================================================
 
     summary["Net Profit"] = (
         summary["Net Settlement"] -
         summary["Total Purchase"]
     )
+
+    total_net_profit = summary["Net Profit"].sum()
+
+    # =================================================
+    # KPI BOXES
+    # =================================================
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    c1.metric("Revenue ₹", round(positive_total, 2))
+    c2.metric("Returns ₹", round(negative_total, 2))
+    c3.metric("Net Settlement ₹", round(net_settlement, 2))
+    c4.metric("Net Profit ₹", round(total_net_profit, 2))
 
     # =================================================
     # RETURN %
@@ -236,13 +228,10 @@ if orders_file:
         == round(summary["Net Settlement"], 2)
     )
 
-    summary["Check"] = summary["Check"].map(
-        {True: "✅", False: "❌"}
-    )
-
-    # =================================================
-    # UNKNOWN SKU CHECK
-    # =================================================
+    summary["Check"] = summary["Check"].map({
+        True: "✅",
+        False: "❌"
+    })
 
     summary["SKU Known"] = summary[sku_col].apply(
         lambda x: "✅"
@@ -251,16 +240,7 @@ if orders_file:
     )
 
     # =================================================
-    # UNKNOWN STATUS CHECK
-    # =================================================
-
-    unknown_status_df = df[
-        (~df[status_col].isin(KNOWN_STATUS)) &
-        (df[status_col] != "")
-    ][[sku_col, status_col]].drop_duplicates()
-
-    # =================================================
-    # DISPLAY
+    # DISPLAY TABLE
     # =================================================
 
     st.subheader("📋 SKU Performance Table")
@@ -274,20 +254,16 @@ if orders_file:
     )
 
     # =================================================
-    # ALERTS
+    # UNKNOWN SKU WARNING
     # =================================================
 
-    unknown_skus = summary[
+    unknown = summary[
         summary["SKU Known"] != "✅"
     ][[sku_col, "SKU Known"]]
 
-    if len(unknown_skus) > 0:
-        st.warning("⚠️ Unknown SKUs found. Please add purchase cost.")
-        st.dataframe(unknown_skus, use_container_width=True)
-
-    if len(unknown_status_df) > 0:
-        st.warning("⚠️ Unknown statuses found. Please review.")
-        st.dataframe(unknown_status_df, use_container_width=True)
+    if len(unknown) > 0:
+        st.warning("⚠️ Unknown SKU found. Add purchase cost.")
+        st.dataframe(unknown, use_container_width=True)
 
 # =====================================================
 # CLAIMS
@@ -383,4 +359,5 @@ if claims_file:
 
         st.divider()
         st.header("🏁 FINAL TOTAL PROFIT")
+
         st.metric("Sales + Claims ₹", round(final_total, 2))
