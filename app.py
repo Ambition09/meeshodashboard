@@ -215,12 +215,15 @@ if orders_file:
     # =========================
 
     revenue = (
-        final_df[sale_mask]
-        .groupby(sku_col)[settlement_col]
-        .sum()
-        .reset_index(name="Revenue")
-    )
-
+    df[
+        (df[status_col].isin(["Delivered", "Shipped"])) &
+        (df[settlement_col] > 0)
+    ]
+    .groupby(sku_col)[settlement_col]
+    .sum()
+    .reset_index(name="Revenue")
+)
+    
     profit = (
         final_df.groupby(sku_col)["Profit"]
         .sum()
