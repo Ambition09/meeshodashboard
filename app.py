@@ -7,7 +7,6 @@ import re
 # =====================================================
 
 st.set_page_config(page_title="Meesho Seller Dashboard", layout="wide")
-
 st.title("📊 Meesho Seller Master Dashboard")
 
 # =====================================================
@@ -61,8 +60,17 @@ PURCHASE_COST_MAP = {
     clean_sku("103-Unstiched-Rama"): 450,
 }
 
+KNOWN_STATUS = {
+    "Delivered",
+    "Return",
+    "RTO",
+    "Shipped",
+    "Cancelled",
+    "Exchange"
+}
+
 # =====================================================
-# FILE UPLOADERS
+# FILE UPLOAD
 # =====================================================
 
 orders_file = st.file_uploader("Upload Order Payments Excel", type=["xlsx"])
@@ -107,7 +115,7 @@ if orders_file:
 
     c1.metric("Revenue ₹", round(positive_total, 2))
     c2.metric("Returns ₹", round(negative_total, 2))
-    c3.metric("Net Profit ₹", round(net_total, 2))
+    c3.metric("Net Settlement ₹", round(net_total, 2))
 
     if round(positive_total - negative_total, 2) == round(net_total, 2):
         c4.metric("Validation", "Matched ✅")
@@ -133,14 +141,14 @@ if orders_file:
         .reset_index(name="Returns")
     )
 
-    profit = (
+    payout = (
         df.groupby(sku_col)[settlement_col]
         .sum()
-        .reset_index(name="Net Profit")
+        .reset_index(name="Net Settlement")
     )
 
     # =================================================
-    # STATUS COUNTS
+    # COUNTS
     # =================================================
 
     counts = (
@@ -169,13 +177,12 @@ if orders_file:
             counts[col] = 0
 
     # =================================================
-    # MERGE ALL
+    # MERGE
     # =================================================
 
     summary = counts.merge(revenue, on=sku_col, how="left")
     summary = summary.merge(returns, on=sku_col, how="left")
-    summary = summary.merge(profit, on=sku_col, how="left")
-
+    summary = summary.merge(payout, on=sku_col, how="left")
     summary = summary.fillna(0)
 
     # =================================================
@@ -186,9 +193,23 @@ if orders_file:
         lambda x: PURCHASE_COST_MAP.get(clean_sku(x), 0)
     )
 
+    # cancelled now charged purchase cost also
     summary["Total Purchase"] = (
-        (summary["Delivered"] + summary["Shipped"])
+        (
+            summary["Delivered"] +
+            summary["Shipped"] +
+            summary["Cancelled"]
+        )
         * summary["Purchase Cost"]
+    )
+
+    # =================================================
+    # REAL PROFIT
+    # =================================================
+
+    summary["Net Profit"] = (
+        summary["Net Settlement"] -
+        summary["Total Purchase"]
     )
 
     # =================================================
@@ -198,26 +219,45 @@ if orders_file:
     summary["Return %"] = (
         summary["Return"] /
         (
-            summary["Delivered"]
-            + summary["Shipped"]
-            + summary["Return"]
+            summary["Delivered"] +
+            summary["Shipped"] +
+            summary["Return"]
         )
     ).replace([float("inf")], 0).fillna(0) * 100
 
     summary["Return %"] = summary["Return %"].round(2)
 
     # =================================================
-    # VALIDATION SKU LEVEL
+    # VALIDATION
     # =================================================
 
     summary["Check"] = (
         round(summary["Revenue"] - summary["Returns"], 2)
-        == round(summary["Net Profit"], 2)
+        == round(summary["Net Settlement"], 2)
     )
 
     summary["Check"] = summary["Check"].map(
         {True: "✅", False: "❌"}
     )
+
+    # =================================================
+    # UNKNOWN SKU CHECK
+    # =================================================
+
+    summary["SKU Known"] = summary[sku_col].apply(
+        lambda x: "✅"
+        if clean_sku(x) in PURCHASE_COST_MAP
+        else "⚠️ Unknown SKU"
+    )
+
+    # =================================================
+    # UNKNOWN STATUS CHECK
+    # =================================================
+
+    unknown_status_df = df[
+        (~df[status_col].isin(KNOWN_STATUS)) &
+        (df[status_col] != "")
+    ][[sku_col, status_col]].drop_duplicates()
 
     # =================================================
     # DISPLAY
@@ -233,8 +273,24 @@ if orders_file:
         use_container_width=True
     )
 
+    # =================================================
+    # ALERTS
+    # =================================================
+
+    unknown_skus = summary[
+        summary["SKU Known"] != "✅"
+    ][[sku_col, "SKU Known"]]
+
+    if len(unknown_skus) > 0:
+        st.warning("⚠️ Unknown SKUs found. Please add purchase cost.")
+        st.dataframe(unknown_skus, use_container_width=True)
+
+    if len(unknown_status_df) > 0:
+        st.warning("⚠️ Unknown statuses found. Please review.")
+        st.dataframe(unknown_status_df, use_container_width=True)
+
 # =====================================================
-# CLAIMS SECTION
+# CLAIMS
 # =====================================================
 
 if claims_file:
@@ -308,23 +364,6 @@ if claims_file:
         - sku_claims["Rejected Loss"]
     )
 
-    c1, c2, c3 = st.columns(3)
-
-    c1.metric(
-        "Total Claim ₹",
-        round(sku_claims["Claim_Received"].sum(), 2)
-    )
-
-    c2.metric(
-        "Rejected Loss ₹",
-        round(sku_claims["Rejected Loss"].sum(), 2)
-    )
-
-    c3.metric(
-        "Net Claims ₹",
-        round(sku_claims["Net Claim"].sum(), 2)
-    )
-
     st.subheader("📋 Claims Table")
 
     st.dataframe(
@@ -335,10 +374,6 @@ if claims_file:
         use_container_width=True
     )
 
-    # ==============================================
-    # FINAL TOTAL
-    # ==============================================
-
     if summary is not None:
 
         final_total = (
@@ -348,8 +383,4 @@ if claims_file:
 
         st.divider()
         st.header("🏁 FINAL TOTAL PROFIT")
-
-        st.metric(
-            "Sales + Claims ₹",
-            round(final_total, 2)
-        )
+        st.metric("Sales + Claims ₹", round(final_total, 2))
