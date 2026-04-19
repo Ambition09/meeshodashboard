@@ -7,7 +7,6 @@ import re
 # =====================================================
 
 st.set_page_config(page_title="Meesho Seller Dashboard", layout="wide")
-
 st.title("📊 Meesho Seller Master Dashboard")
 
 # =====================================================
@@ -61,8 +60,17 @@ PURCHASE_COST_MAP = {
     clean_sku("103-Unstiched-Rama"): 450,
 }
 
+KNOWN_STATUS = {
+    "Delivered",
+    "Return",
+    "RTO",
+    "Shipped",
+    "Cancelled",
+    "Exchange"
+}
+
 # =====================================================
-# FILE UPLOADERS
+# FILE UPLOAD
 # =====================================================
 
 orders_file = st.file_uploader("Upload Order Payments Excel", type=["xlsx"])
@@ -96,26 +104,15 @@ if orders_file:
     ).fillna(0)
 
     # =================================================
-    # KPI TOTALS
+    # TOTALS
     # =================================================
 
     positive_total = df[df[settlement_col] > 0][settlement_col].sum()
     negative_total = abs(df[df[settlement_col] < 0][settlement_col].sum())
-    net_total = df[settlement_col].sum()
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric("Revenue ₹", round(positive_total, 2))
-    c2.metric("Returns ₹", round(negative_total, 2))
-    c3.metric("Net Profit ₹", round(net_total, 2))
-
-    if round(positive_total - negative_total, 2) == round(net_total, 2):
-        c4.metric("Validation", "Matched ✅")
-    else:
-        c4.metric("Validation", "Mismatch ❌")
+    net_settlement = df[settlement_col].sum()
 
     # =================================================
-    # SKU LEVEL SUMMARY
+    # SKU LEVEL DATA
     # =================================================
 
     revenue = (
@@ -133,15 +130,11 @@ if orders_file:
         .reset_index(name="Returns")
     )
 
-    profit = (
+    payout = (
         df.groupby(sku_col)[settlement_col]
         .sum()
-        .reset_index(name="Net Profit")
+        .reset_index(name="Net Settlement")
     )
-
-    # =================================================
-    # STATUS COUNTS
-    # =================================================
 
     counts = (
         df.pivot_table(
@@ -155,26 +148,20 @@ if orders_file:
 
     counts.columns.name = None
 
-    needed_cols = [
+    for col in [
         "Delivered",
         "Return",
         "RTO",
         "Shipped",
         "Cancelled",
         "Exchange"
-    ]
-
-    for col in needed_cols:
+    ]:
         if col not in counts.columns:
             counts[col] = 0
 
-    # =================================================
-    # MERGE ALL
-    # =================================================
-
     summary = counts.merge(revenue, on=sku_col, how="left")
     summary = summary.merge(returns, on=sku_col, how="left")
-    summary = summary.merge(profit, on=sku_col, how="left")
+    summary = summary.merge(payout, on=sku_col, how="left")
 
     summary = summary.fillna(0)
 
@@ -187,9 +174,35 @@ if orders_file:
     )
 
     summary["Total Purchase"] = (
-        (summary["Delivered"] + summary["Shipped"])
+        (
+            summary["Delivered"] +
+            summary["Shipped"] +
+            summary["Cancelled"]
+        )
         * summary["Purchase Cost"]
     )
+
+    # =================================================
+    # NET PROFIT
+    # =================================================
+
+    summary["Net Profit"] = (
+        summary["Net Settlement"] -
+        summary["Total Purchase"]
+    )
+
+    total_net_profit = summary["Net Profit"].sum()
+
+    # =================================================
+    # KPI BOXES
+    # =================================================
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    c1.metric("Revenue ₹", round(positive_total, 2))
+    c2.metric("Returns ₹", round(negative_total, 2))
+    c3.metric("Net Settlement ₹", round(net_settlement, 2))
+    c4.metric("Net Profit ₹", round(total_net_profit, 2))
 
     # =================================================
     # RETURN %
@@ -198,29 +211,36 @@ if orders_file:
     summary["Return %"] = (
         summary["Return"] /
         (
-            summary["Delivered"]
-            + summary["Shipped"]
-            + summary["Return"]
+            summary["Delivered"] +
+            summary["Shipped"] +
+            summary["Return"]
         )
     ).replace([float("inf")], 0).fillna(0) * 100
 
     summary["Return %"] = summary["Return %"].round(2)
 
     # =================================================
-    # VALIDATION SKU LEVEL
+    # VALIDATION
     # =================================================
 
     summary["Check"] = (
         round(summary["Revenue"] - summary["Returns"], 2)
-        == round(summary["Net Profit"], 2)
+        == round(summary["Net Settlement"], 2)
     )
 
-    summary["Check"] = summary["Check"].map(
-        {True: "✅", False: "❌"}
+    summary["Check"] = summary["Check"].map({
+        True: "✅",
+        False: "❌"
+    })
+
+    summary["SKU Known"] = summary[sku_col].apply(
+        lambda x: "✅"
+        if clean_sku(x) in PURCHASE_COST_MAP
+        else "⚠️ Unknown SKU"
     )
 
     # =================================================
-    # DISPLAY
+    # DISPLAY TABLE
     # =================================================
 
     st.subheader("📋 SKU Performance Table")
@@ -233,8 +253,20 @@ if orders_file:
         use_container_width=True
     )
 
+    # =================================================
+    # UNKNOWN SKU WARNING
+    # =================================================
+
+    unknown = summary[
+        summary["SKU Known"] != "✅"
+    ][[sku_col, "SKU Known"]]
+
+    if len(unknown) > 0:
+        st.warning("⚠️ Unknown SKU found. Add purchase cost.")
+        st.dataframe(unknown, use_container_width=True)
+
 # =====================================================
-# CLAIMS SECTION
+# CLAIMS
 # =====================================================
 
 if claims_file:
@@ -308,23 +340,6 @@ if claims_file:
         - sku_claims["Rejected Loss"]
     )
 
-    c1, c2, c3 = st.columns(3)
-
-    c1.metric(
-        "Total Claim ₹",
-        round(sku_claims["Claim_Received"].sum(), 2)
-    )
-
-    c2.metric(
-        "Rejected Loss ₹",
-        round(sku_claims["Rejected Loss"].sum(), 2)
-    )
-
-    c3.metric(
-        "Net Claims ₹",
-        round(sku_claims["Net Claim"].sum(), 2)
-    )
-
     st.subheader("📋 Claims Table")
 
     st.dataframe(
@@ -334,10 +349,6 @@ if claims_file:
         ).reset_index(drop=True),
         use_container_width=True
     )
-
-    # ==============================================
-    # FINAL TOTAL
-    # ==============================================
 
     if summary is not None:
 
@@ -349,7 +360,4 @@ if claims_file:
         st.divider()
         st.header("🏁 FINAL TOTAL PROFIT")
 
-        st.metric(
-            "Sales + Claims ₹",
-            round(final_total, 2)
-        )
+        st.metric("Sales + Claims ₹", round(final_total, 2))
