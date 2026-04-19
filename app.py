@@ -1,37 +1,89 @@
 import streamlit as st
 import pandas as pd
 import re
-
-# =====================================================
-# PAGE CONFIG
-# =====================================================
+import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Meesho Seller Dashboard", layout="wide")
+
+# -----------------------------------------------------
+# FONT
+# -----------------------------------------------------
+
+st.markdown(
+    '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">',
+    unsafe_allow_html=True
+)
+
+# -----------------------------------------------------
+# DARK THEME
+# -----------------------------------------------------
+
+st.markdown("""
+<style>
+html, body, [class*="css"]  {
+    font-family: 'Inter', sans-serif;
+}
+
+[data-testid="stAppViewContainer"] {
+    background-color: #00022E;
+}
+
+h1, h2, h3, h4 {
+    color: white !important;
+}
+
+[data-testid="stFileUploader"] label {
+    color: white !important;
+    font-weight: 600;
+}
+
+[data-testid="stFileUploader"] span {
+    color: #A8B2FF !important;
+}
+
+[data-testid="stMetric"] {
+    background: linear-gradient(145deg,#050845,#0b0f63);
+    padding: 25px;
+    border-radius: 14px;
+    border: 1px solid #2b2fa3;
+    transition: all 0.2s ease;
+}
+
+[data-testid="stMetric"]:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+}
+
+[data-testid="stMetricLabel"] {
+    color: #9CA3FF !important;
+    font-size: 15px !important;
+}
+
+[data-testid="stMetricValue"] {
+    color: white !important;
+    font-size: 36px !important;
+    font-weight: 600;
+}
+
+[data-testid="stDataFrame"] {
+    background-color: #050845;
+    border-radius: 12px;
+}
+
+.block-container {
+    padding-top: 2rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
 st.title("📊 Meesho Seller Master Dashboard")
-
-# =====================================================
-# HELPERS
-# =====================================================
-
-def clean_sku(x):
-    return str(x).strip().lower()
-
-def find_date_column(df):
-    possible = [
-        "Payment Date",
-        "Settlement Date",
-        "Date",
-        "Payment Initiation Date",
-        "Payment Date "
-    ]
-    for col in possible:
-        if col in df.columns:
-            return col
-    return None
 
 # =====================================================
 # PURCHASE COST MAP
 # =====================================================
+
+def clean_sku(x):
+    return str(x).strip().lower()
 
 PURCHASE_COST_MAP = {
     clean_sku("MirrorBlue1"): 850,
@@ -58,235 +110,260 @@ PURCHASE_COST_MAP = {
     clean_sku("HB-103 INDIGO"): 550,
 
     clean_sku("BH-221 Red NEW 1299"): 850,
-    clean_sku("BH-221 Purple NEW 1299"): 850,
-
     clean_sku("221-Unstiched-Purple"): 450,
-    clean_sku("221-Unstiched-Red"): 480,
-
     clean_sku("221 Red XXL"): 850,
     clean_sku("221 Purple XXL"): 850,
     clean_sku("221 Red"): 850,
     clean_sku("221 Purple"): 850,
-
     clean_sku("H-201 maroon"): 550,
+    clean_sku("BH-221 Purple NEW 1299"): 850,
+    clean_sku("221-Unstiched-Red"): 480,
     clean_sku("103-Unstiched-Yellow"): 450,
     clean_sku("103-Unstiched-Rama"): 450,
 }
 
-# statuses where purchase cost should be charged
-COST_STATUSES = [
-    "Delivered",
-    "Shipped",
-    "Cancelled",
-    "Exchange"
-]
-
 # =====================================================
-# FILE UPLOAD
+# FILE UPLOADS
 # =====================================================
 
 orders_file = st.file_uploader("Upload Order Payments Excel", type=["xlsx"])
+claims_file = st.file_uploader("Upload Claims CSV", type=["csv"])
+
+summary = None
 
 # =====================================================
-# MAIN
+# SALES
 # =====================================================
 
 if orders_file:
 
-    df = pd.read_excel(
-        orders_file,
-        sheet_name="Order Payments",
-        header=1
-    )
+    df = pd.read_excel(orders_file, sheet_name="Order Payments", header=1)
 
     sku_col = "Supplier SKU"
     status_col = "Live Order Status"
     settlement_col = "Final Settlement Amount"
+    order_col = "Sub Order No"
 
-    date_col = find_date_column(df)
+    df = df.dropna(subset=[sku_col, status_col, order_col])
+    df[settlement_col] = pd.to_numeric(df[settlement_col], errors="coerce").fillna(0)
 
-    df = df.dropna(subset=[sku_col]).copy()
+    order_counts = df[order_col].value_counts()
 
-    df[sku_col] = df[sku_col].astype(str).str.strip()
-    df[status_col] = df[status_col].fillna("").astype(str).str.strip()
-    df[settlement_col] = pd.to_numeric(
-        df[settlement_col],
-        errors="coerce"
-    ).fillna(0)
+    single_orders = order_counts[order_counts == 1].index
+    duplicate_orders = order_counts[order_counts > 1].index
 
-    if date_col:
-        df[date_col] = pd.to_datetime(
-            df[date_col],
-            errors="coerce"
-        ).dt.date
+    single_df = df[df[order_col].isin(single_orders)].copy()
+    duplicate_df = df[df[order_col].isin(duplicate_orders)].copy()
 
-    # =================================================
-    # TOP KPI BOXES
-    # =================================================
+    def single_profit(row):
+        purchase_cost = PURCHASE_COST_MAP.get(clean_sku(row[sku_col]), 0)
+        if row[status_col] in ["Delivered", "Shipped"]:
+            return row[settlement_col] - purchase_cost
+        else:
+            return row[settlement_col]
 
-    total_revenue = df[df[settlement_col] > 0][settlement_col].sum()
-    total_returns = abs(
-        df[df[settlement_col] < 0][settlement_col].sum()
+    single_df["Profit"] = single_df.apply(single_profit, axis=1)
+
+    duplicate_grouped = (
+        duplicate_df
+        .groupby(order_col)
+        .agg({
+            settlement_col: "sum",
+            sku_col: "first",
+            status_col: "last"
+        })
+        .reset_index()
     )
 
-    net_settlement = df[settlement_col].sum()
+    def duplicate_profit(row):
+        purchase_cost = PURCHASE_COST_MAP.get(clean_sku(row[sku_col]), 0)
+        if row[status_col] in ["Delivered", "Shipped"]:
+            return row[settlement_col] - purchase_cost
+        else:
+            return row[settlement_col]
 
-    # total purchase based on statuses
-    df["Purchase Cost"] = df[sku_col].apply(
-        lambda x: PURCHASE_COST_MAP.get(clean_sku(x), 0)
-    )
+    duplicate_grouped["Profit"] = duplicate_grouped.apply(duplicate_profit, axis=1)
 
-    df["Charge Cost"] = df[status_col].isin(COST_STATUSES)
+    final_df = pd.concat([
+        single_df[[sku_col, status_col, settlement_col, "Profit"]],
+        duplicate_grouped[[sku_col, status_col, settlement_col, "Profit"]]
+    ])
 
-    total_purchase = df[df["Charge Cost"]]["Purchase Cost"].sum()
+    sale_mask = final_df[status_col].isin(["Delivered", "Shipped"])
 
-    net_profit = (
-        total_revenue -
-        total_returns -
-        total_purchase
-    )
-
-    c1, c2, c3, c4, c5 = st.columns(5)
-
-    c1.metric("Net Settlement ₹", round(net_settlement, 2))
-    c2.metric("Total Revenue ₹", round(total_revenue, 2))
-    c3.metric("Total Returns ₹", round(total_returns, 2))
-    c4.metric("Total Purchase ₹", round(total_purchase, 2))
-    c5.metric("Net Profit ₹", round(net_profit, 2))
-
-    # =================================================
-    # SKU TABLE
-    # =================================================
+    # =========================
+    # COUNTS (FIXED)
+    # =========================
 
     counts = (
-        df.pivot_table(
+        final_df.pivot_table(
             index=sku_col,
             columns=status_col,
-            aggfunc="size",
+            aggfunc='size',
             fill_value=0
         ).reset_index()
     )
 
     counts.columns.name = None
 
-    for col in [
-        "Delivered",
-        "RTO",
-        "Return",
-        "Shipped",
-        "Cancelled",
-        "Exchange"
-    ]:
+    for col in ["Delivered", "Return", "RTO", "Shipped"]:
         if col not in counts.columns:
             counts[col] = 0
 
+    # =========================
+    # REVENUE + PROFIT
+    # =========================
+
     revenue = (
-        df[df[settlement_col] > 0]
+        final_df[sale_mask]
         .groupby(sku_col)[settlement_col]
         .sum()
         .reset_index(name="Revenue")
     )
 
-    returns = (
-        df[df[settlement_col] < 0]
-        .groupby(sku_col)[settlement_col]
+    profit = (
+        final_df.groupby(sku_col)["Profit"]
         .sum()
-        .abs()
-        .reset_index(name="Returns")
+        .reset_index(name="Net Profit")
     )
 
     summary = counts.merge(revenue, on=sku_col, how="left")
-    summary = summary.merge(returns, on=sku_col, how="left")
-    summary = summary.fillna(0)
+    summary = summary.merge(profit, on=sku_col, how="left")
+
+    summary = summary.fillna(0).round(2)
+
+    # =========================
+    # PURCHASE
+    # =========================
 
     summary["Purchase Cost"] = summary[sku_col].apply(
         lambda x: PURCHASE_COST_MAP.get(clean_sku(x), 0)
     )
 
     summary["Total Purchase"] = (
-        (
-            summary["Delivered"] +
-            summary["Shipped"] +
-            summary["Cancelled"] +
-            summary["Exchange"]
-        )
-        * summary["Purchase Cost"]
+        (summary["Delivered"] + summary["Shipped"]) *
+        summary["Purchase Cost"]
     )
 
-    summary["Net Profit"] = (
-        summary["Revenue"] -
-        summary["Returns"] -
-        summary["Total Purchase"]
-    )
+    # =========================
+    # RETURN % (YOUR LOGIC)
+    # =========================
 
     summary["Return %"] = (
         summary["Return"] /
-        (
-            summary["Delivered"] +
-            summary["Shipped"] +
-            summary["Return"]
-        )
-    ).replace([float("inf")], 0).fillna(0) * 100
+        (summary["Delivered"] + summary["Shipped"] + summary["Return"])
+    ).replace([float('inf')], 0).fillna(0) * 100
 
     summary["Return %"] = summary["Return %"].round(2)
 
-    final_cols = [
-        sku_col,
-        "Delivered",
-        "RTO",
-        "Return",
-        "Shipped",
-        "Revenue",
-        "Returns",
-        "Purchase Cost",
-        "Total Purchase",
-        "Net Profit",
-        "Return %"
-    ]
+    # =========================
+    # KPIs
+    # =========================
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    c1.metric("Delivered + Shipped",
+              int(summary["Delivered"].sum() + summary["Shipped"].sum()))
+
+    c2.metric("Returns",
+              int(summary["Return"].sum()))
+
+    c3.metric("Revenue ₹",
+              round(summary["Revenue"].sum(), 2))
+
+    c4.metric("Net Profit ₹",
+              round(summary["Net Profit"].sum(), 2))
+
+    # =========================
+    # FINAL TABLE
+    # =========================
 
     st.subheader("📋 SKU Performance Table")
 
     st.dataframe(
-        summary[final_cols]
-        .sort_values("Net Profit", ascending=False)
-        .reset_index(drop=True),
+        summary.sort_values("Net Profit", ascending=False).reset_index(drop=True),
         use_container_width=True
     )
 
-    # =================================================
-    # DATE WISE SETTLEMENT
-    # =================================================
+# =====================================================
+# CLAIMS
+# =====================================================
 
-    if date_col:
+if claims_file:
 
-        date_summary = (
-            df.groupby(date_col)[settlement_col]
-            .sum()
-            .reset_index(name="Net Settlement")
-            .sort_values(date_col)
+    st.divider()
+    st.header("🧾 Claims Recovery Analysis")
+
+    claims = pd.read_csv(claims_file)
+
+    status_col = "Ticket Status"
+    sku_col = "SKU"
+
+    def extract_amount(text):
+        if pd.isna(text):
+            return 0
+        nums = re.findall(r'Rs\.?\s*(\d+(?:\.\d+)?)', str(text))
+        return sum(float(x) for x in nums)
+
+    claims["Claim Amount"] = claims["Last Update"].apply(extract_amount)
+
+    approved = claims[claims[status_col] == "Approved"]
+    rejected = claims[claims[status_col] == "Rejected"]
+
+    approved_grp = (
+        approved.groupby(sku_col)
+        .agg(
+            Approved_Qty=("SKU", "count"),
+            Claim_Received=("Claim Amount", "sum")
         )
+        .reset_index()
+    )
 
-        st.subheader("📅 Date Wise Net Settlement")
-
-        st.dataframe(
-            date_summary,
-            use_container_width=True
+    rejected_grp = (
+        rejected.groupby(sku_col)
+        .agg(
+            Rejected_Qty=("SKU", "count")
         )
+        .reset_index()
+    )
 
-        # =============================================
-        # VALIDATION
-        # =============================================
+    sku_claims = approved_grp.merge(rejected_grp, on=sku_col, how="outer").fillna(0)
 
-        sku_total = summary["Net Profit"].sum()
-        date_total = date_summary["Net Settlement"].sum()
+    sku_claims["Purchase Cost"] = sku_claims[sku_col].apply(
+        lambda x: PURCHASE_COST_MAP.get(clean_sku(x), 0)
+    )
 
-        st.subheader("✅ Validation")
+    sku_claims["Approved Profit"] = (
+        sku_claims["Claim_Received"]
+        - (sku_claims["Approved_Qty"] * sku_claims["Purchase Cost"])
+    )
 
-        if round(net_settlement, 2) == round(date_total, 2):
-            st.success(
-                f"Matched: SKU/Data Total = ₹{round(date_total,2)}"
-            )
-        else:
-            st.error(
-                f"Mismatch: SKU Total ₹{round(net_settlement,2)} vs Date Total ₹{round(date_total,2)}"
-            )
+    sku_claims["Rejected Loss"] = (
+        sku_claims["Rejected_Qty"] * sku_claims["Purchase Cost"]
+    )
+
+    sku_claims["Net Claim"] = (
+        sku_claims["Approved Profit"] - sku_claims["Rejected Loss"]
+    )
+
+    c1, c2, c3 = st.columns(3)
+
+    c1.metric("Total Claim ₹", round(sku_claims["Claim_Received"].sum(), 2))
+    c2.metric("Rejected Loss ₹", round(sku_claims["Rejected Loss"].sum(), 2))
+    c3.metric("Net Claims ₹", round(sku_claims["Net Claim"].sum(), 2))
+
+    st.subheader("📋 Claims Table")
+
+    st.dataframe(
+        sku_claims.sort_values("Net Claim", ascending=False).reset_index(drop=True),
+        use_container_width=True
+    )
+
+    if summary is not None:
+
+        final_total = summary["Net Profit"].sum() + sku_claims["Net Claim"].sum()
+
+        st.divider()
+        st.header("🏁 FINAL TOTAL PROFIT")
+
+        st.metric("Sales + Claims ₹", round(final_total, 2))
