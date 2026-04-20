@@ -123,7 +123,7 @@ if not orders_file:
     st.stop()
 
 # =====================================================
-# ORDER PAYMENTS
+# LOAD ORDER DATA
 # =====================================================
 
 df = read_order_payments(orders_file)
@@ -165,7 +165,7 @@ df["Purchase Cost"] = df[sku_col].apply(
 )
 
 # =====================================================
-# FIXED NET PROFIT LOGIC (ONLY CHANGE REQUESTED)
+# FIXED NET PROFIT LOGIC
 # =====================================================
 
 status_priority = {
@@ -192,23 +192,15 @@ final_status_map = (
 
 df["Final Order Status"] = df[suborder_col].map(final_status_map)
 
-first_row_index = (
-    df.groupby(suborder_col)
-    .head(1)
-    .index
-)
-
+first_row_index = df.groupby(suborder_col).head(1).index
 df["Is First Duplicate Row"] = df.index.isin(first_row_index)
 
 def revised_cost_qty(row):
-
     final_status = row["Final Order Status"]
 
-    # if final status became return/rto no cost
     if final_status in ["Return", "RTO"]:
         return 0
 
-    # charge once only
     if final_status in ["Delivered", "Shipped", "Cancelled", "Exchange"]:
         return 1 if row["Is First Duplicate Row"] else 0
 
@@ -218,11 +210,12 @@ df["Cost Qty"] = df.apply(revised_cost_qty, axis=1)
 
 df["Total Purchase Cost"] = df["Cost Qty"] * df["Purchase Cost"]
 
-df["Actual Profit"] = (
-    df[settlement_col] - df["Total Purchase Cost"]
-)
+df["Actual Profit"] = df[settlement_col] - df["Total Purchase Cost"]
 
-# keep rest same
+# =====================================================
+# COUNTS
+# =====================================================
+
 df["Effective Delivered Qty"] = df["Final Order Status"].isin(
     ["Delivered", "Shipped"]
 ).astype(int)
@@ -233,6 +226,10 @@ df["Cancelled Qty"] = (df["Final Order Status"] == "Cancelled").astype(int)
 df["Exchange Qty"] = (df["Final Order Status"] == "Exchange").astype(int)
 df["Blank Status Qty"] = (df["Final Order Status"] == "Blank").astype(int)
 
+# =====================================================
+# TOTALS
+# =====================================================
+
 positive_settlement = df.loc[df[settlement_col] > 0, settlement_col].sum()
 return_deduction = abs(df.loc[df[settlement_col] < 0, settlement_col].sum())
 net_settlement = df[settlement_col].sum()
@@ -240,7 +237,7 @@ total_purchase_cost = df["Total Purchase Cost"].sum()
 sales_actual_profit = df["Actual Profit"].sum()
 
 # =====================================================
-# CLAIMS SECTION (UNCHANGED)
+# CLAIMS
 # =====================================================
 
 sku_claims = pd.DataFrame()
@@ -330,3 +327,194 @@ kpi5.metric("Gross Positive Settlement", money(positive_settlement))
 kpi6.metric("Return Deductions", money(return_deduction))
 kpi7.metric("Sales Profit Before Claims", money(sales_actual_profit))
 kpi8.metric("Total Orders", f"{len(df):,}")
+
+# =====================================================
+# SKU PERFORMANCE
+# =====================================================
+
+st.subheader("SKU Profit Table")
+
+status_counts = (
+    df.pivot_table(
+        index=sku_col,
+        columns="Final Order Status",
+        values=settlement_col,
+        aggfunc="size",
+        fill_value=0,
+    )
+    .reset_index()
+)
+
+status_counts.columns.name = None
+
+for col in ["Delivered", "Shipped", "Return", "RTO", "Cancelled", "Exchange", "Blank"]:
+    if col not in status_counts.columns:
+        status_counts[col] = 0
+
+sku_summary = (
+    df.groupby(sku_col)
+    .agg(
+        Product_Name=(product_col, "first"),
+        Gross_Positive_Settlement=(settlement_col, lambda s: s[s > 0].sum()),
+        Return_Deduction=(settlement_col, lambda s: abs(s[s < 0].sum())),
+        Net_Settlement=(settlement_col, "sum"),
+        Purchase_Cost_Per_Piece=("Purchase Cost", "max"),
+        Total_Purchase_Cost=("Total Purchase Cost", "sum"),
+        Actual_Profit=("Actual Profit", "sum"),
+        Cost_Qty=("Cost Qty", "sum"),
+    )
+    .reset_index()
+)
+
+sku_summary = sku_summary.merge(status_counts, on=sku_col, how="left")
+sku_summary["Effective Delivered"] = sku_summary["Delivered"] + sku_summary["Shipped"]
+
+denominator = (
+    sku_summary["Effective Delivered"]
+    + sku_summary["Return"]
+    + sku_summary["RTO"]
+).replace(0, pd.NA)
+
+sku_summary["Return %"] = (
+    sku_summary["Return"] / denominator * 100
+).fillna(0).round(2)
+
+sku_summary["RTO %"] = (
+    sku_summary["RTO"] / denominator * 100
+).fillna(0).round(2)
+
+display_cols = [
+    sku_col,
+    "Product_Name",
+    "Effective Delivered",
+    "Delivered",
+    "Shipped",
+    "Return",
+    "RTO",
+    "Cancelled",
+    "Exchange",
+    "Blank",
+    "Gross_Positive_Settlement",
+    "Return_Deduction",
+    "Net_Settlement",
+    "Purchase_Cost_Per_Piece",
+    "Cost_Qty",
+    "Total_Purchase_Cost",
+    "Actual_Profit",
+    "Return %",
+    "RTO %",
+]
+
+st.dataframe(
+    sku_summary[display_cols]
+    .sort_values("Actual_Profit", ascending=False)
+    .reset_index(drop=True),
+    use_container_width=True,
+)
+
+# =====================================================
+# STATUS BREAKDOWN
+# =====================================================
+
+st.subheader("Status Breakdown")
+
+status_summary = (
+    df.groupby("Final Order Status")
+    .agg(
+        Orders=(sku_col, "count"),
+        Net_Settlement=(settlement_col, "sum"),
+        Purchase_Cost=("Total Purchase Cost", "sum"),
+        Actual_Profit=("Actual Profit", "sum"),
+    )
+    .reset_index()
+    .sort_values("Orders", ascending=False)
+)
+
+st.dataframe(status_summary, use_container_width=True)
+
+# =====================================================
+# MONTHLY TREND
+# =====================================================
+
+st.subheader("Monthly Trend by Payment Date")
+
+trend = df.dropna(subset=[payment_date_col]).copy()
+trend["Payment Month"] = trend[payment_date_col].dt.to_period("M").astype(str)
+
+monthly_trend = (
+    trend.groupby("Payment Month")
+    .agg(
+        Orders=(sku_col, "count"),
+        Net_Settlement=(settlement_col, "sum"),
+        Purchase_Cost=("Total Purchase Cost", "sum"),
+        Actual_Profit=("Actual Profit", "sum"),
+    )
+    .reset_index()
+)
+
+if monthly_trend.empty:
+    st.info("No payment dates were found for monthly trend.")
+else:
+    st.line_chart(
+        monthly_trend.set_index("Payment Month")[["Net_Settlement", "Actual_Profit"]]
+    )
+    st.dataframe(monthly_trend, use_container_width=True)
+
+# =====================================================
+# CLAIMS ANALYSIS
+# =====================================================
+
+st.subheader("Claims Analysis")
+
+if claims_file:
+    claim_kpi1, claim_kpi2, claim_kpi3 = st.columns(3)
+    claim_kpi1.metric("Claim Received", money(sku_claims["Claim_Received"].sum()))
+    claim_kpi2.metric("Rejected Loss", money(sku_claims["Rejected Loss"].sum()))
+    claim_kpi3.metric("Net Claim", money(net_claim))
+
+    st.dataframe(
+        sku_claims.sort_values("Net Claim", ascending=False).reset_index(drop=True),
+        use_container_width=True,
+    )
+else:
+    st.info("Upload a claims CSV to calculate approved profit, rejected loss, and net claim.")
+
+# =====================================================
+# RAW DATA
+# =====================================================
+
+st.subheader("Raw Processed Order Data")
+
+processed_cols = [
+    sku_col,
+    product_col,
+    order_date_col,
+    payment_date_col,
+    status_col,
+    "Final Order Status",
+    settlement_col,
+    "Purchase Cost",
+    "Cost Qty",
+    "Total Purchase Cost",
+    "Actual Profit",
+]
+
+st.dataframe(df[processed_cols].reset_index(drop=True), use_container_width=True)
+
+# =====================================================
+# DOWNLOADS
+# =====================================================
+
+st.download_button(
+    "Download SKU Summary CSV",
+    sku_summary.to_csv(index=False).encode("utf-8"),
+    file_name="meesho_sku_summary.csv",
+    mime="text/csv",
+)
+
+st.download_button(
+    "Download Processed Orders CSV",
+    df[processed_cols].to_csv(index=False).encode("utf-8"),
+    file_name="meesho_processed_orders.csv",
+    mime="text/csv",
+)
