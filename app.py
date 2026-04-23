@@ -1,29 +1,31 @@
+from pathlib import Path
 import re
+
 import pandas as pd
 import streamlit as st
 
-# =====================================================
-# PAGE CONFIG
-# =====================================================
 
-st.set_page_config(page_title="Meesho Seller PNL Dashboard", layout="wide")
-st.title("Meesho Seller PNL Dashboard")
+st.set_page_config(page_title="Meesho Month Wise PNL", layout="wide")
+st.title("Meesho Month Wise PNL Dashboard")
 
-# =====================================================
-# HELPERS
-# =====================================================
 
-def clean_sku(x):
-    return str(x).strip().lower()
+LOCAL_SAMPLE_FILE = Path(r"C:\Users\karwa\Downloads\Trend_Creation_PNL_FINAL.xlsx")
+
+
+def clean_sku(value):
+    return str(value).strip().lower()
+
 
 def money(value):
     return f"Rs. {value:,.2f}"
+
 
 def require_columns(dataframe, required_columns, source_name):
     missing = [col for col in required_columns if col not in dataframe.columns]
     if missing:
         st.error(f"{source_name} is missing required columns: {', '.join(missing)}")
         st.stop()
+
 
 def normalize_status(value):
     text = str(value).strip().lower()
@@ -45,28 +47,18 @@ def normalize_status(value):
 
     return str(value).strip()
 
+
 def extract_claim_amount(text):
     if pd.isna(text):
         return 0.0
 
     matches = re.findall(
-        r"(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d+)?)",
+        r"(?:Rs\.?|INR|\u20b9)\s*([\d,]+(?:\.\d+)?)",
         str(text),
         flags=re.IGNORECASE,
     )
-
     return sum(float(amount.replace(",", "")) for amount in matches)
 
-def read_order_payments(uploaded_file):
-    try:
-        return pd.read_excel(uploaded_file, sheet_name="Order Payments", header=1)
-    except ValueError:
-        st.error("Could not find the 'Order Payments' sheet in this Excel file.")
-        st.stop()
-
-# =====================================================
-# PURCHASE COST MAP
-# =====================================================
 
 PURCHASE_COST_MAP = {
     clean_sku("MirrorBlue1"): 850,
@@ -108,413 +100,479 @@ PURCHASE_COST_MAP = {
     clean_sku("103-Unstiched-Rama"): 450,
 }
 
-# =====================================================
-# FILE UPLOADERS
-# =====================================================
 
-with st.sidebar:
-    st.header("Uploads")
-    orders_file = st.file_uploader("Upload Meesho PNL Excel", type=["xlsx"])
-    claims_file = st.file_uploader("Upload Claims CSV (Optional)", type=["csv"])
-    st.caption("Ads and referral sheets are ignored as requested.")
-
-if not orders_file:
-    st.info("Upload your Meesho PNL Excel file to begin.")
-    st.stop()
-
-# =====================================================
-# LOAD ORDER DATA
-# =====================================================
-
-df = read_order_payments(orders_file)
-
-sku_col = "Supplier SKU"
-product_col = "Product Name"
-status_col = "Live Order Status"
-settlement_col = "Final Settlement Amount"
-payment_date_col = "Payment Date"
-order_date_col = "Order Date"
-suborder_col = "Sub Order No"
-
-required_order_columns = [
-    sku_col,
-    product_col,
-    status_col,
-    settlement_col,
-    payment_date_col,
-    order_date_col,
-    suborder_col,
+ORDER_COLUMNS = [
+    "Sub Order No",
+    "Order Date",
+    "Dispatch Date",
+    "Product Name",
+    "Supplier SKU",
+    "Live Order Status",
+    "Payment Date",
+    "Final Settlement Amount",
 ]
 
-require_columns(df, required_order_columns, "Order Payments sheet")
 
-df = df.dropna(subset=[sku_col]).copy()
+def read_orders_workbook(file_or_path):
+    excel = pd.ExcelFile(file_or_path)
 
-df[sku_col] = df[sku_col].astype(str).str.strip()
-df[product_col] = df[product_col].fillna("").astype(str).str.strip()
-df[suborder_col] = df[suborder_col].astype(str).str.strip()
+    if "Order Payments" in excel.sheet_names:
+        orders = pd.read_excel(file_or_path, sheet_name="Order Payments", header=1)
+        orders = orders.dropna(subset=["Supplier SKU"]).copy()
+        orders["Source Month"] = pd.to_datetime(
+            orders["Payment Date"], errors="coerce"
+        ).dt.to_period("M").astype(str)
+        return orders, ["Order Payments"]
 
-df["Normalized Status"] = df[status_col].apply(normalize_status)
+    month_sheets = [
+        sheet
+        for sheet in excel.sheet_names
+        if re.fullmatch(r"\d{4}-\d{2}", str(sheet).strip())
+    ]
 
-df[settlement_col] = pd.to_numeric(df[settlement_col], errors="coerce").fillna(0)
-df[payment_date_col] = pd.to_datetime(df[payment_date_col], errors="coerce")
-df[order_date_col] = pd.to_datetime(df[order_date_col], errors="coerce")
+    if not month_sheets:
+        month_sheets = [sheet for sheet in excel.sheet_names if sheet.lower() != "summary"]
 
-df["Purchase Cost"] = df[sku_col].apply(
-    lambda x: PURCHASE_COST_MAP.get(clean_sku(x), 0)
-)
+    frames = []
+    loaded_sheets = []
 
-# =====================================================
-# FIXED NET PROFIT LOGIC
-# =====================================================
+    for sheet in month_sheets:
+        frame = pd.read_excel(file_or_path, sheet_name=sheet)
+        if "Supplier SKU" not in frame.columns:
+            continue
+        frame = frame.dropna(subset=["Supplier SKU"]).copy()
+        frame["Source Month"] = str(sheet)
+        frames.append(frame)
+        loaded_sheets.append(str(sheet))
 
-status_priority = {
-    "Return": 6,
-    "Delivered": 5,
-    "Shipped": 4,
-    "Exchange": 3,
-    "Cancelled": 2,
-    "RTO": 1,
-    "Blank": 0,
-}
+    if not frames:
+        st.error("No usable order-payment sheets were found in this workbook.")
+        st.stop()
 
-final_status_map = (
-    df.groupby(suborder_col)["Normalized Status"]
-    .apply(
-        lambda s: sorted(
-            s.astype(str),
-            key=lambda x: status_priority.get(x, 0),
-            reverse=True
-        )[0]
-    )
-    .to_dict()
-)
+    return pd.concat(frames, ignore_index=True), loaded_sheets
 
-df["Final Order Status"] = df[suborder_col].map(final_status_map)
 
-first_row_index = df.groupby(suborder_col).head(1).index
-df["Is First Duplicate Row"] = df.index.isin(first_row_index)
+def build_order_lifecycle(raw_orders, charge_cancelled_cost):
+    orders = raw_orders.copy()
+    require_columns(orders, ORDER_COLUMNS, "Order data")
 
-def revised_cost_qty(row):
-    final_status = row["Final Order Status"]
+    orders["Row Order"] = range(len(orders))
+    orders["Sub Order No"] = orders["Sub Order No"].astype(str).str.strip()
+    orders["Supplier SKU"] = orders["Supplier SKU"].astype(str).str.strip()
+    orders["Product Name"] = orders["Product Name"].fillna("").astype(str).str.strip()
+    orders["Final Settlement Amount"] = pd.to_numeric(
+        orders["Final Settlement Amount"], errors="coerce"
+    ).fillna(0)
 
-    if final_status in ["Return", "RTO"]:
-        return 0
+    for date_col in ["Order Date", "Dispatch Date", "Payment Date"]:
+        orders[date_col] = pd.to_datetime(orders[date_col], errors="coerce")
 
-    if final_status in ["Delivered", "Shipped", "Cancelled", "Exchange"]:
-        return 1 if row["Is First Duplicate Row"] else 0
-
-    return 0
-
-df["Cost Qty"] = df.apply(revised_cost_qty, axis=1)
-
-df["Total Purchase Cost"] = df["Cost Qty"] * df["Purchase Cost"]
-
-df["Actual Profit"] = df[settlement_col] - df["Total Purchase Cost"]
-
-# =====================================================
-# COUNTS
-# =====================================================
-
-df["Effective Delivered Qty"] = df["Final Order Status"].isin(
-    ["Delivered", "Shipped"]
-).astype(int)
-
-df["Return Qty"] = (df["Final Order Status"] == "Return").astype(int)
-df["RTO Qty"] = (df["Final Order Status"] == "RTO").astype(int)
-df["Cancelled Qty"] = (df["Final Order Status"] == "Cancelled").astype(int)
-df["Exchange Qty"] = (df["Final Order Status"] == "Exchange").astype(int)
-df["Blank Status Qty"] = (df["Final Order Status"] == "Blank").astype(int)
-
-# =====================================================
-# TOTALS
-# =====================================================
-
-positive_settlement = df.loc[df[settlement_col] > 0, settlement_col].sum()
-return_deduction = abs(df.loc[df[settlement_col] < 0, settlement_col].sum())
-net_settlement = df[settlement_col].sum()
-total_purchase_cost = df["Total Purchase Cost"].sum()
-sales_actual_profit = df["Actual Profit"].sum()
-
-# =====================================================
-# CLAIMS
-# =====================================================
-
-sku_claims = pd.DataFrame()
-net_claim = 0.0
-
-if claims_file:
-    claims = pd.read_csv(claims_file)
-
-    claim_sku_col = "SKU"
-    claim_status_col = "Ticket Status"
-    claim_update_col = "Last Update"
-
-    require_columns(
-        claims,
-        [claim_sku_col, claim_status_col, claim_update_col],
-        "Claims CSV",
+    orders["Normalized Status"] = orders["Live Order Status"].apply(normalize_status)
+    orders["Purchase Cost"] = orders["Supplier SKU"].apply(
+        lambda sku: PURCHASE_COST_MAP.get(clean_sku(sku), 0)
     )
 
-    claims[claim_sku_col] = claims[claim_sku_col].astype(str).str.strip()
-    claims[claim_status_col] = claims[claim_status_col].fillna("").astype(str).str.strip()
-    claims["Claim Amount"] = claims[claim_update_col].apply(extract_claim_amount)
+    latest_sort_date = (
+        orders["Payment Date"]
+        .fillna(orders["Dispatch Date"])
+        .fillna(orders["Order Date"])
+    )
+    orders["Latest Sort Date"] = latest_sort_date
 
-    approved = claims[
-        claims[claim_status_col].str.contains("approved", case=False, na=False)
-    ].copy()
+    latest_rows = (
+        orders.sort_values(["Sub Order No", "Latest Sort Date", "Row Order"])
+        .groupby("Sub Order No", as_index=False)
+        .tail(1)
+    )
 
-    rejected = claims[
-        claims[claim_status_col].str.contains("rejected", case=False, na=False)
-    ].copy()
-
-    approved_grp = (
-        approved.groupby(claim_sku_col)
+    settlement_totals = (
+        orders.groupby("Sub Order No")
         .agg(
-            Approved_Qty=(claim_sku_col, "count"),
-            Claim_Received=("Claim Amount", "sum"),
+            Gross_Positive_Settlement=(
+                "Final Settlement Amount",
+                lambda s: s[s > 0].sum(),
+            ),
+            Return_Deduction=(
+                "Final Settlement Amount",
+                lambda s: abs(s[s < 0].sum()),
+            ),
+            Net_Settlement=("Final Settlement Amount", "sum"),
+            Row_Count=("Sub Order No", "count"),
         )
         .reset_index()
     )
 
+    lifecycle = latest_rows[
+        [
+            "Sub Order No",
+            "Supplier SKU",
+            "Product Name",
+            "Source Month",
+            "Order Date",
+            "Dispatch Date",
+            "Payment Date",
+            "Live Order Status",
+            "Normalized Status",
+            "Purchase Cost",
+        ]
+    ].merge(settlement_totals, on="Sub Order No", how="left")
+
+    cost_statuses = ["Delivered", "Shipped"]
+    if charge_cancelled_cost:
+        cost_statuses.append("Cancelled")
+
+    lifecycle["Cost Qty"] = lifecycle["Normalized Status"].isin(cost_statuses).astype(int)
+    lifecycle["Total Purchase Cost"] = lifecycle["Cost Qty"] * lifecycle["Purchase Cost"]
+    lifecycle["Actual Profit"] = (
+        lifecycle["Net_Settlement"] - lifecycle["Total Purchase Cost"]
+    )
+    lifecycle["Final Month"] = lifecycle["Source Month"]
+    lifecycle["Is Duplicate Lifecycle"] = lifecycle["Row_Count"] > 1
+
+    return orders, lifecycle
+
+
+def build_claims_table(claims_file):
+    if not claims_file:
+        return pd.DataFrame(), 0.0
+
+    claims = pd.read_csv(claims_file)
+    require_columns(claims, ["SKU", "Ticket Status", "Last Update"], "Claims CSV")
+
+    claims["SKU"] = claims["SKU"].astype(str).str.strip()
+    claims["Ticket Status"] = claims["Ticket Status"].fillna("").astype(str).str.strip()
+    claims["Claim Amount"] = claims["Last Update"].apply(extract_claim_amount)
+
+    approved = claims[
+        claims["Ticket Status"].str.contains("approved", case=False, na=False)
+    ].copy()
+    rejected = claims[
+        claims["Ticket Status"].str.contains("rejected", case=False, na=False)
+    ].copy()
+
+    approved_grp = (
+        approved.groupby("SKU")
+        .agg(Approved_Qty=("SKU", "count"), Claim_Received=("Claim Amount", "sum"))
+        .reset_index()
+    )
     rejected_grp = (
-        rejected.groupby(claim_sku_col)
-        .agg(Rejected_Qty=(claim_sku_col, "count"))
+        rejected.groupby("SKU")
+        .agg(Rejected_Qty=("SKU", "count"))
         .reset_index()
     )
 
-    sku_claims = approved_grp.merge(
-        rejected_grp,
-        on=claim_sku_col,
-        how="outer",
-    ).fillna(0)
-
-    sku_claims["Purchase Cost"] = sku_claims[claim_sku_col].apply(
-        lambda x: PURCHASE_COST_MAP.get(clean_sku(x), 0)
+    sku_claims = approved_grp.merge(rejected_grp, on="SKU", how="outer").fillna(0)
+    sku_claims["Purchase Cost"] = sku_claims["SKU"].apply(
+        lambda sku: PURCHASE_COST_MAP.get(clean_sku(sku), 0)
     )
-
     sku_claims["Approved Profit"] = (
         sku_claims["Claim_Received"]
         - sku_claims["Approved_Qty"] * sku_claims["Purchase Cost"]
     )
-
     sku_claims["Rejected Loss"] = (
         sku_claims["Rejected_Qty"] * sku_claims["Purchase Cost"]
     )
-
     sku_claims["Net Claim"] = (
         sku_claims["Approved Profit"] - sku_claims["Rejected Loss"]
     )
 
-    net_claim = sku_claims["Net Claim"].sum()
+    return sku_claims, float(sku_claims["Net Claim"].sum())
 
-final_profit = sales_actual_profit + net_claim
 
-# =====================================================
-# EXECUTIVE SUMMARY
-# =====================================================
-
-st.subheader("Executive Summary")
-
-kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-kpi1.metric("Final Profit", money(final_profit))
-kpi2.metric("Money Received", money(net_settlement))
-kpi3.metric("Purchase Cost", money(total_purchase_cost))
-kpi4.metric("Net Claims", money(net_claim))
-
-kpi5, kpi6, kpi7, kpi8 = st.columns(4)
-kpi5.metric("Gross Positive Settlement", money(positive_settlement))
-kpi6.metric("Return Deductions", money(return_deduction))
-kpi7.metric("Sales Profit Before Claims", money(sales_actual_profit))
-kpi8.metric("Total Orders", f"{len(df):,}")
-
-# =====================================================
-# SKU PERFORMANCE
-# =====================================================
-
-st.subheader("SKU Profit Table")
-
-status_counts = (
-    df.pivot_table(
-        index=sku_col,
-        columns="Final Order Status",
-        values=settlement_col,
-        aggfunc="size",
-        fill_value=0,
+with st.sidebar:
+    st.header("Inputs")
+    orders_file = st.file_uploader("Upload month-wise PNL Excel", type=["xlsx"])
+    claims_file = st.file_uploader("Upload Claims CSV (optional)", type=["csv"])
+    charge_cancelled_cost = st.checkbox(
+        "Charge purchase cost on cancelled final status",
+        value=True,
     )
-    .reset_index()
+
+    use_local_sample = False
+    if orders_file is None and LOCAL_SAMPLE_FILE.exists():
+        use_local_sample = st.checkbox(
+            "Use local Trend_Creation_PNL_FINAL.xlsx",
+            value=True,
+        )
+
+if orders_file is None and not use_local_sample:
+    st.info("Upload the month-wise Meesho PNL Excel file to begin.")
+    st.stop()
+
+input_file = orders_file if orders_file is not None else LOCAL_SAMPLE_FILE
+raw_orders, loaded_sheets = read_orders_workbook(input_file)
+raw_orders, lifecycle = build_order_lifecycle(raw_orders, charge_cancelled_cost)
+sku_claims, net_claim = build_claims_table(claims_file)
+
+sales_profit = float(lifecycle["Actual Profit"].sum())
+net_settlement = float(lifecycle["Net_Settlement"].sum())
+purchase_cost = float(lifecycle["Total Purchase Cost"].sum())
+return_deduction = float(lifecycle["Return_Deduction"].sum())
+final_profit = sales_profit + net_claim
+
+
+st.caption(f"Loaded sheets: {', '.join(loaded_sheets)}")
+
+st.subheader("Total Summary")
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Final Profit", money(final_profit))
+c2.metric("Sales Profit", money(sales_profit))
+c3.metric("Money Received", money(net_settlement))
+c4.metric("Purchase Cost", money(purchase_cost))
+
+c5, c6, c7, c8 = st.columns(4)
+c5.metric("Return Deductions", money(return_deduction))
+c6.metric("Net Claims", money(net_claim))
+c7.metric("Final Orders", f"{len(lifecycle):,}")
+c8.metric("Duplicate Orders Merged", f"{int(lifecycle['Is Duplicate Lifecycle'].sum()):,}")
+
+
+missing_cost = lifecycle[lifecycle["Purchase Cost"] == 0][
+    ["Supplier SKU", "Product Name"]
+].drop_duplicates()
+if not missing_cost.empty:
+    st.warning("Some SKUs do not have purchase cost mapped. Their cost is counted as Rs. 0.")
+    st.dataframe(missing_cost, use_container_width=True, hide_index=True)
+
+
+tabs = st.tabs(
+    [
+        "Month Summary",
+        "SKU Summary",
+        "Duplicate Orders",
+        "Status Breakdown",
+        "Claims",
+        "Raw Data",
+    ]
 )
 
-status_counts.columns.name = None
 
-for col in ["Delivered", "Shipped", "Return", "RTO", "Cancelled", "Exchange", "Blank"]:
-    if col not in status_counts.columns:
-        status_counts[col] = 0
+with tabs[0]:
+    st.subheader("Month Wise Final PNL")
 
-sku_summary = (
-    df.groupby(sku_col)
-    .agg(
-        Product_Name=(product_col, "first"),
-        Gross_Positive_Settlement=(settlement_col, lambda s: s[s > 0].sum()),
-        Return_Deduction=(settlement_col, lambda s: abs(s[s < 0].sum())),
-        Net_Settlement=(settlement_col, "sum"),
-        Purchase_Cost_Per_Piece=("Purchase Cost", "max"),
-        Total_Purchase_Cost=("Total Purchase Cost", "sum"),
-        Actual_Profit=("Actual Profit", "sum"),
-        Cost_Qty=("Cost Qty", "sum"),
+    month_summary = (
+        lifecycle.groupby("Final Month")
+        .agg(
+            Final_Orders=("Sub Order No", "count"),
+            Gross_Positive_Settlement=("Gross_Positive_Settlement", "sum"),
+            Return_Deduction=("Return_Deduction", "sum"),
+            Net_Settlement=("Net_Settlement", "sum"),
+            Purchase_Cost=("Total Purchase Cost", "sum"),
+            Sales_Profit=("Actual Profit", "sum"),
+            Duplicate_Orders=("Is Duplicate Lifecycle", "sum"),
+        )
+        .reset_index()
+        .sort_values("Final Month")
     )
-    .reset_index()
-)
 
-sku_summary = sku_summary.merge(status_counts, on=sku_col, how="left")
-sku_summary["Effective Delivered"] = sku_summary["Delivered"] + sku_summary["Shipped"]
-
-denominator = (
-    sku_summary["Effective Delivered"]
-    + sku_summary["Return"]
-    + sku_summary["RTO"]
-).replace(0, pd.NA)
-
-sku_summary["Return %"] = (
-    sku_summary["Return"] / denominator * 100
-).fillna(0).round(2)
-
-sku_summary["RTO %"] = (
-    sku_summary["RTO"] / denominator * 100
-).fillna(0).round(2)
-
-display_cols = [
-    sku_col,
-    "Product_Name",
-    "Effective Delivered",
-    "Delivered",
-    "Shipped",
-    "Return",
-    "RTO",
-    "Cancelled",
-    "Exchange",
-    "Blank",
-    "Gross_Positive_Settlement",
-    "Return_Deduction",
-    "Net_Settlement",
-    "Purchase_Cost_Per_Piece",
-    "Cost_Qty",
-    "Total_Purchase_Cost",
-    "Actual_Profit",
-    "Return %",
-    "RTO %",
-]
-
-st.dataframe(
-    sku_summary[display_cols]
-    .sort_values("Actual_Profit", ascending=False)
-    .reset_index(drop=True),
-    use_container_width=True,
-)
-
-# =====================================================
-# STATUS BREAKDOWN
-# =====================================================
-
-st.subheader("Status Breakdown")
-
-status_summary = (
-    df.groupby("Final Order Status")
-    .agg(
-        Orders=(sku_col, "count"),
-        Net_Settlement=(settlement_col, "sum"),
-        Purchase_Cost=("Total Purchase Cost", "sum"),
-        Actual_Profit=("Actual Profit", "sum"),
+    total_row = pd.DataFrame(
+        [
+            {
+                "Final Month": "TOTAL",
+                "Final_Orders": month_summary["Final_Orders"].sum(),
+                "Gross_Positive_Settlement": month_summary[
+                    "Gross_Positive_Settlement"
+                ].sum(),
+                "Return_Deduction": month_summary["Return_Deduction"].sum(),
+                "Net_Settlement": month_summary["Net_Settlement"].sum(),
+                "Purchase_Cost": month_summary["Purchase_Cost"].sum(),
+                "Sales_Profit": month_summary["Sales_Profit"].sum(),
+                "Duplicate_Orders": month_summary["Duplicate_Orders"].sum(),
+            }
+        ]
     )
-    .reset_index()
-    .sort_values("Orders", ascending=False)
-)
-
-st.dataframe(status_summary, use_container_width=True)
-
-# =====================================================
-# MONTHLY TREND
-# =====================================================
-
-st.subheader("Monthly Trend by Payment Date")
-
-trend = df.dropna(subset=[payment_date_col]).copy()
-trend["Payment Month"] = trend[payment_date_col].dt.to_period("M").astype(str)
-
-monthly_trend = (
-    trend.groupby("Payment Month")
-    .agg(
-        Orders=(sku_col, "count"),
-        Net_Settlement=(settlement_col, "sum"),
-        Purchase_Cost=("Total Purchase Cost", "sum"),
-        Actual_Profit=("Actual Profit", "sum"),
+    month_summary_with_total = pd.concat(
+        [month_summary, total_row],
+        ignore_index=True,
     )
-    .reset_index()
-)
 
-if monthly_trend.empty:
-    st.info("No payment dates were found for monthly trend.")
-else:
-    st.line_chart(
-        monthly_trend.set_index("Payment Month")[["Net_Settlement", "Actual_Profit"]]
+    st.dataframe(month_summary_with_total, use_container_width=True, hide_index=True)
+
+    chart_data = month_summary.set_index("Final Month")[
+        ["Net_Settlement", "Purchase_Cost", "Sales_Profit"]
+    ]
+    st.bar_chart(chart_data)
+
+    raw_month_summary = (
+        raw_orders.groupby("Source Month")
+        .agg(
+            Raw_Rows=("Sub Order No", "count"),
+            Raw_Money_Received=("Final Settlement Amount", "sum"),
+        )
+        .reset_index()
+        .sort_values("Source Month")
     )
-    st.dataframe(monthly_trend, use_container_width=True)
+    st.subheader("Raw Money by Excel Month")
+    st.dataframe(raw_month_summary, use_container_width=True, hide_index=True)
 
-# =====================================================
-# CLAIMS ANALYSIS
-# =====================================================
 
-st.subheader("Claims Analysis")
+with tabs[1]:
+    st.subheader("SKU Wise Final PNL")
 
-if claims_file:
-    claim_kpi1, claim_kpi2, claim_kpi3 = st.columns(3)
-    claim_kpi1.metric("Claim Received", money(sku_claims["Claim_Received"].sum()))
-    claim_kpi2.metric("Rejected Loss", money(sku_claims["Rejected Loss"].sum()))
-    claim_kpi3.metric("Net Claim", money(net_claim))
+    status_counts = (
+        lifecycle.pivot_table(
+            index="Supplier SKU",
+            columns="Normalized Status",
+            values="Sub Order No",
+            aggfunc="count",
+            fill_value=0,
+        )
+        .reset_index()
+    )
+    status_counts.columns.name = None
+
+    for col in ["Delivered", "Shipped", "Return", "RTO", "Cancelled", "Exchange", "Blank"]:
+        if col not in status_counts.columns:
+            status_counts[col] = 0
+
+    sku_summary = (
+        lifecycle.groupby("Supplier SKU")
+        .agg(
+            Product_Name=("Product Name", "first"),
+            Final_Orders=("Sub Order No", "count"),
+            Gross_Positive_Settlement=("Gross_Positive_Settlement", "sum"),
+            Return_Deduction=("Return_Deduction", "sum"),
+            Net_Settlement=("Net_Settlement", "sum"),
+            Purchase_Cost_Per_Piece=("Purchase Cost", "max"),
+            Cost_Qty=("Cost Qty", "sum"),
+            Total_Purchase_Cost=("Total Purchase Cost", "sum"),
+            Actual_Profit=("Actual Profit", "sum"),
+        )
+        .reset_index()
+        .merge(status_counts, on="Supplier SKU", how="left")
+    )
+
+    denominator = (
+        sku_summary["Delivered"]
+        + sku_summary["Shipped"]
+        + sku_summary["Return"]
+        + sku_summary["RTO"]
+    )
+    safe_denominator = denominator.where(denominator != 0)
+    sku_summary["Return %"] = (
+        sku_summary["Return"] / safe_denominator * 100
+    ).fillna(0).round(2)
+    sku_summary["RTO %"] = (
+        sku_summary["RTO"] / safe_denominator * 100
+    ).fillna(0).round(2)
 
     st.dataframe(
-        sku_claims.sort_values("Net Claim", ascending=False).reset_index(drop=True),
+        sku_summary.sort_values("Actual_Profit", ascending=False),
         use_container_width=True,
+        hide_index=True,
     )
-else:
-    st.info("Upload a claims CSV to calculate approved profit, rejected loss, and net claim.")
 
-# =====================================================
-# RAW DATA
-# =====================================================
 
-st.subheader("Raw Processed Order Data")
+with tabs[2]:
+    st.subheader("Merged Duplicate Orders")
 
-processed_cols = [
-    sku_col,
-    product_col,
-    order_date_col,
-    payment_date_col,
-    status_col,
-    "Final Order Status",
-    settlement_col,
-    "Purchase Cost",
-    "Cost Qty",
-    "Total Purchase Cost",
-    "Actual Profit",
-]
+    duplicate_orders = lifecycle[lifecycle["Is Duplicate Lifecycle"]].copy()
+    if duplicate_orders.empty:
+        st.info("No duplicate order lifecycles were found.")
+    else:
+        st.dataframe(
+            duplicate_orders[
+                [
+                    "Final Month",
+                    "Sub Order No",
+                    "Supplier SKU",
+                    "Product Name",
+                    "Normalized Status",
+                    "Row_Count",
+                    "Gross_Positive_Settlement",
+                    "Return_Deduction",
+                    "Net_Settlement",
+                    "Purchase Cost",
+                    "Total Purchase Cost",
+                    "Actual Profit",
+                ]
+            ].sort_values(["Final Month", "Sub Order No"]),
+            use_container_width=True,
+            hide_index=True,
+        )
 
-st.dataframe(df[processed_cols].reset_index(drop=True), use_container_width=True)
+        selected_order = st.selectbox(
+            "View raw rows for duplicate order",
+            duplicate_orders["Sub Order No"].sort_values().tolist(),
+        )
+        st.dataframe(
+            raw_orders[raw_orders["Sub Order No"] == selected_order]
+            .sort_values(["Payment Date", "Row Order"])
+            [
+                [
+                    "Source Month",
+                    "Sub Order No",
+                    "Supplier SKU",
+                    "Live Order Status",
+                    "Normalized Status",
+                    "Payment Date",
+                    "Final Settlement Amount",
+                ]
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
 
-# =====================================================
-# DOWNLOADS
-# =====================================================
 
-st.download_button(
-    "Download SKU Summary CSV",
-    sku_summary.to_csv(index=False).encode("utf-8"),
-    file_name="meesho_sku_summary.csv",
-    mime="text/csv",
-)
+with tabs[3]:
+    st.subheader("Final Status Breakdown")
 
-st.download_button(
-    "Download Processed Orders CSV",
-    df[processed_cols].to_csv(index=False).encode("utf-8"),
-    file_name="meesho_processed_orders.csv",
-    mime="text/csv",
-)
+    status_summary = (
+        lifecycle.groupby("Normalized Status")
+        .agg(
+            Final_Orders=("Sub Order No", "count"),
+            Net_Settlement=("Net_Settlement", "sum"),
+            Purchase_Cost=("Total Purchase Cost", "sum"),
+            Actual_Profit=("Actual Profit", "sum"),
+        )
+        .reset_index()
+        .sort_values("Final_Orders", ascending=False)
+    )
+    st.dataframe(status_summary, use_container_width=True, hide_index=True)
+
+
+with tabs[4]:
+    st.subheader("Claims Analysis")
+
+    if sku_claims.empty:
+        st.info("Upload a claims CSV to calculate approved profit, rejected loss, and net claim.")
+    else:
+        claim1, claim2, claim3 = st.columns(3)
+        claim1.metric("Claim Received", money(sku_claims["Claim_Received"].sum()))
+        claim2.metric("Rejected Loss", money(sku_claims["Rejected Loss"].sum()))
+        claim3.metric("Net Claim", money(net_claim))
+
+        st.dataframe(
+            sku_claims.sort_values("Net Claim", ascending=False),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
+with tabs[5]:
+    st.subheader("Final Order Lifecycle Data")
+    st.dataframe(
+        lifecycle.sort_values(["Final Month", "Sub Order No"]),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.subheader("Raw Uploaded Rows")
+    st.dataframe(
+        raw_orders.sort_values(["Source Month", "Sub Order No", "Payment Date"]),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.download_button(
+        "Download Month Summary CSV",
+        month_summary_with_total.to_csv(index=False).encode("utf-8"),
+        file_name="meesho_month_summary.csv",
+        mime="text/csv",
+    )
+    st.download_button(
+        "Download Final Lifecycle CSV",
+        lifecycle.to_csv(index=False).encode("utf-8"),
+        file_name="meesho_final_order_lifecycle.csv",
+        mime="text/csv",
+    )
