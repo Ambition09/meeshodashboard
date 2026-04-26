@@ -62,10 +62,10 @@ def extract_claim_amount(text):
 
 PURCHASE_COST_MAP = {
     clean_sku("MirrorBlue1"): 850,
-    clean_sku("HIRVA-221 PURPLE NEW 1299"): 775,
-    clean_sku("HB-221 Purple"): 775,
-    clean_sku("HB-221 Red"): 775,
-    clean_sku("HIRVA-221 RED NEW 1299"): 775,
+    clean_sku("HIRVA-221 PURPLE NEW 1299"): 850,
+    clean_sku("HB-221 Purple"): 850,
+    clean_sku("HB-221 Red"): 850,
+    clean_sku("HIRVA-221 RED NEW 1299"): 850,
     clean_sku("mirror - blue"): 850,
     clean_sku("MIRROR YELLOW"): 850,
 
@@ -84,16 +84,16 @@ PURCHASE_COST_MAP = {
     clean_sku("HB-103 PINK"): 550,
     clean_sku("HB-103 INDIGO"): 550,
 
-    clean_sku("BH-221 Red NEW 1299"): 775,
-    clean_sku("BH-221 Purple NEW 1299"): 775,
+    clean_sku("BH-221 Red NEW 1299"): 850,
+    clean_sku("BH-221 Purple NEW 1299"): 850,
 
     clean_sku("221-Unstiched-Purple"): 450,
     clean_sku("221-Unstiched-Red"): 480,
 
-    clean_sku("221 Red XXL"): 775,
-    clean_sku("221 Purple XXL"): 775,
-    clean_sku("221 Red"): 775,
-    clean_sku("221 Purple"): 775,
+    clean_sku("221 Red XXL"): 850,
+    clean_sku("221 Purple XXL"): 850,
+    clean_sku("221 Red"): 850,
+    clean_sku("221 Purple"): 850,
 
     clean_sku("H-201 maroon"): 550,
     clean_sku("103-Unstiched-Yellow"): 450,
