@@ -101,7 +101,6 @@ PURCHASE_COST_MAP = {
     clean_sku("103-Unstiched-Yellow"): 450,
     clean_sku("103-Unstiched-Rama"): 450,
     clean_sku("221-Blouse-Red"): 250,
-    clean_sku("103-Unstiched-Rama"): 250,
 }
 
 
