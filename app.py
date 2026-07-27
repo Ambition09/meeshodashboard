@@ -118,6 +118,7 @@ PURCHASE_COST_MAP = {
     clean_sku("342037333"):250,
     clean_sku("227746947"):250,
     clean_sku("68002677"):250,
+    clean_sku("221 blo"):250,
     
     
 }
