@@ -111,7 +111,14 @@ PURCHASE_COST_MAP = {
     clean_sku("221-PURPLE-LATEST"):600,
     clean_sku("103"):200,
     clean_sku("103-Blouse-RAMA"):200,
-    clean_sku("2076572086"):250
+    clean_sku("2076572086"):250,
+    clean_sku("1418208170"):600,
+    clean_sku("1096510020"):250,
+    clean_sku("1987123931"):250,
+    clean_sku("342037333"):250,
+    clean_sku("227746947"):250,
+    clean_sku("68002677"):250,
+    
     
 }
 
