@@ -95,7 +95,7 @@ PURCHASE_COST_MAP = {
     clean_sku("221-Blouse-Red"): 250,
     clean_sku("221- blouse- purple"): 250,
     clean_sku("221-Blouse-Purple"): 250,
-    clean_sku("221-RED-LATEST"): 250,
+    clean_sku("221-RED-LATEST"): 550,
     clean_sku("645270438"): 250,
     clean_sku("2120167267"): 250,
     clean_sku("221 blou"): 250,
