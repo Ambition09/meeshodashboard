@@ -85,7 +85,7 @@ PURCHASE_COST_MAP = {
     clean_sku("221-Unstiched-Red"): 480,
     clean_sku("221 Red XXL"): 600,
     clean_sku("221 Purple XXL"): 600,
-    clean_sku("221 Red"): 600,
+    clean_sku("221 Red"): 550,
     clean_sku("221 Purple"): 600,
     clean_sku("hb-221 purples"): 600,
     clean_sku("hb-221  b red"): 600,
