@@ -111,7 +111,39 @@ PURCHASE_COST_MAP = {
     clean_sku("227746947"): 250,
     clean_sku("68002677"): 250,
     clean_sku("221 blo"): 250,
+
+    # September-October 2026 SKU cost additions
+    clean_sku("179418215"): 450,
+    clean_sku("221-PURPLE-SKU3"): 550,
+    clean_sku("221-PURPLE-XXL-SKU"): 550,
+    clean_sku("221-RED-SKU3"): 550,
+    clean_sku("221-RED-SKU4"): 550,
+    clean_sku("221-RED-SKU7"): 550,
+    clean_sku("292849342"): 550,
+    clean_sku("501-BLACK-SKU2"): 500,
+    clean_sku("KF-501-PURPLE"): 500,
+    clean_sku("PS103 Rama"): 450,
 }
+
+
+CLAIMS_OUTPUT_COLUMNS = [
+    "SKU",
+    "Suborder Number",
+    "Ticket ID",
+    "Ticket Status",
+    "Qty",
+    "Claim Amount",
+    "Purchase Cost",
+    "Approved Qty",
+    "Rejected Qty",
+    "Open Qty",
+    "Approved Claim Received",
+    "Approved Purchase Cost",
+    "Rejected Purchase Cost",
+    "Net Claim Profit",
+    "Order Status",
+    "Matched To Order Payment",
+]
 
 
 ORDER_COLUMNS = [
@@ -256,7 +288,9 @@ def build_order_lifecycle(raw_orders, charge_exchange_cost):
 
 def build_claims_table(claims_file, lifecycle):
     if claims_file is None:
-        return pd.DataFrame(), 0.0
+        # Keep the expected schema even when the optional upload is absent.
+        # This prevents later reporting code from raising KeyError.
+        return pd.DataFrame(columns=CLAIMS_OUTPUT_COLUMNS), 0.0
 
     claims = pd.read_csv(claims_file)
     require_columns(
@@ -268,6 +302,11 @@ def build_claims_table(claims_file, lifecycle):
     claims["SKU"] = claims["SKU"].astype(str).str.strip()
     claims["Suborder Number"] = claims["Suborder Number"].astype(str).str.strip()
     claims["Ticket Status"] = claims["Ticket Status"].fillna("").astype(str).str.strip()
+    if "Qty" in claims.columns:
+        claims["Qty"] = pd.to_numeric(claims["Qty"], errors="coerce").fillna(1)
+    else:
+        claims["Qty"] = 1
+    claims["Qty"] = claims["Qty"].clip(lower=0)
     claims["Claim Amount"] = claims["Last Update"].apply(extract_claim_amount)
     claims["Purchase Cost"] = claims["SKU"].apply(
         lambda sku: PURCHASE_COST_MAP.get(clean_sku(sku), 0)
@@ -283,8 +322,12 @@ def build_claims_table(claims_file, lifecycle):
         "open", case=False, na=False
     ).astype(int)
     claims["Approved Claim Received"] = claims["Claim Amount"] * claims["Approved Qty"]
-    claims["Approved Purchase Cost"] = claims["Purchase Cost"] * claims["Approved Qty"]
-    claims["Rejected Purchase Cost"] = claims["Purchase Cost"] * claims["Rejected Qty"]
+    claims["Approved Purchase Cost"] = (
+        claims["Purchase Cost"] * claims["Qty"] * claims["Approved Qty"]
+    )
+    claims["Rejected Purchase Cost"] = (
+        claims["Purchase Cost"] * claims["Qty"] * claims["Rejected Qty"]
+    )
     claims["Net Claim Profit"] = (
         claims["Approved Claim Received"]
         - claims["Approved Purchase Cost"]
@@ -325,15 +368,17 @@ order_purchase_cost = float(lifecycle["Order Purchase Cost"].sum())
 order_deductions = float(lifecycle["Order_Deductions"].sum())
 final_profit = order_profit + net_claim_profit
 
-missing_cost = pd.concat(
-    [
-        lifecycle.loc[lifecycle["Purchase Cost"] == 0, ["Supplier SKU", "Product Name"]],
-        claims.loc[claims["Purchase Cost"] == 0, ["SKU"]].rename(
-            columns={"SKU": "Supplier SKU"}
-        ),
-    ],
-    ignore_index=True,
-).drop_duplicates()
+missing_cost_parts = [
+    lifecycle.loc[lifecycle["Purchase Cost"] == 0, ["Supplier SKU", "Product Name"]]
+]
+if not claims.empty:
+    missing_cost_parts.append(
+        claims.loc[claims["Purchase Cost"] == 0, ["SKU"]]
+        .rename(columns={"SKU": "Supplier SKU"})
+        .assign(Product_Name="")
+        .rename(columns={"Product_Name": "Product Name"})
+    )
+missing_cost = pd.concat(missing_cost_parts, ignore_index=True).drop_duplicates()
 
 st.caption(
     "Claims income is sourced from the claims CSV. The Excel Claims component is "
@@ -352,8 +397,17 @@ c7.metric("Final Orders", f"{len(lifecycle):,}")
 c8.metric("Duplicate Orders Merged", f"{int(lifecycle['Is Duplicate Lifecycle'].sum()):,}")
 
 if not missing_cost.empty:
-    st.error("Unmapped SKU costs found. Their purchase cost is currently Rs. 0.")
+    st.error(
+        "Unmapped SKU costs found. Their purchase cost is currently Rs. 0, so "
+        "profit is overstated until you add their actual costs to PURCHASE_COST_MAP."
+    )
     st.dataframe(missing_cost, use_container_width=True, hide_index=True)
+
+if claims_file is None and raw_orders["Claims"].sum() != 0:
+    st.warning(
+        "This Excel contains claim payments, which are excluded from order settlement. "
+        "Upload the matching claims CSV to include claim income and claim-related purchase cost."
+    )
 
 tabs = st.tabs(
     [
